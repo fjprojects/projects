@@ -130,3 +130,31 @@ Adaptive Next Question
 * Jomon JoJo
 * Parvathy
 
+
+## Setup / How to Run
+
+### Backend
+
+1. Create and activate a Python virtual environment.
+2. Install dependencies with: pip install -r requirements.txt
+3. Copy .env.example to .env and add your GROQ_API_KEY.
+4. Run: cd backend
+5. Run: python manage.py migrate
+6. Run: python manage.py runserver
+
+### Frontend
+
+1. Run: cd frontend
+2. Run: npm install
+3. Run: npm run dev
+
+Frontend: http://localhost:5173
+Backend: http://127.0.0.1:8000
+
+## Repository Link
+
+https://github.com/fjprojects/projects/tree/main/LabTwin-AI
+
+## Security
+
+API keys and credentials are not committed. Configure them locally using .env.example.
