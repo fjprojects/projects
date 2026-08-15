@@ -2,3 +2,12 @@
 venv/
 __pycache__/
 .ipynb_checkpoints/
+*_backup_*/
+frontend/src/App.backup.jsx
+frontend/src/App.before-*.jsx
+frontend/src/ProgressiveHints.before-*.jsx
+backend/labtwin_v2_accuracy_fix.py
+labtwin_v2_upgrade.py
+labtwin.ipynb
+student_memory.json
+syllabus_state.json
