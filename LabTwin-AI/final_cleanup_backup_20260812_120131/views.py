@@ -109,156 +109,6 @@ def clean_json_output(output):
     raise ValueError("AI returned an invalid response. Please try again.")
 
 
-def _normalize_topic_name(value):
-    return "".join(
-        char.lower()
-        for char in str(value or "")
-        if char.isalnum()
-    )
-
-
-def expected_concept_key_for_topic(topic):
-    """Best deterministic broad concept for clearly named syllabus topics."""
-    name = str(topic or "").strip().lower()
-
-    # Java foundation topics are conceptual/structural, not conditionals/loops.
-    java_foundations = (
-        "introduction to java",
-        "java runtime environment",
-        "jre",
-        "java development kit",
-        "jdk",
-        "java virtual machine",
-        "jvm",
-        "java compiler",
-        "java program structure",
-        "java tokens",
-    )
-
-    if any(item == name for item in java_foundations):
-        return "OTHER"
-
-    # Order matters: pointer/file/dynamic-memory topics may also mention
-    # arrays, strings, functions or structures.
-    if "pointer" in name:
-        return "POINTERS"
-    if "dynamic memory" in name or "malloc" in name or "calloc" in name or "realloc" in name:
-        return "DYNAMIC_MEMORY"
-    if "file" in name or any(word in name for word in ("fseek", "ftell", "fread", "fwrite")):
-        return "FILES"
-    if "struct" in name or "union" in name:
-        return "STRUCTURES"
-    if "array" in name:
-        return "ARRAYS"
-    if "string" in name:
-        return "STRINGS"
-    if any(word in name for word in ("conditional", "if else", "if-else", "switch")):
-        return "CONDITIONALS"
-    if any(word in name for word in ("loop", "iteration", "while", "for loop")):
-        return "LOOPS"
-    if any(word in name for word in ("class", "object", "inheritance", "polymorphism", "interface", "encapsulation", "abstraction")):
-        return "OOP"
-    if any(word in name for word in ("function", "method")):
-        return "FUNCTIONS"
-    if "operator" in name and "arithmetic" in name:
-        return "ARITHMETIC_OPERATORS"
-
-    return None
-
-
-def validate_generated_question_alignment(generated, allowed_topics, required_topic=None):
-    """Return an error string when AI output drifts away from the syllabus topic."""
-    if not isinstance(generated, dict):
-        return "Generated question is not a JSON object."
-
-    raw_topic = str(generated.get("topic", "")).strip()
-    normalized = _normalize_topic_name(raw_topic)
-
-    canonical = None
-    for allowed in allowed_topics or []:
-        if _normalize_topic_name(allowed) == normalized:
-            canonical = str(allowed).strip()
-            break
-
-    if not canonical:
-        return f'Topic "{raw_topic}" is not one of the uploaded syllabus topics.'
-
-    generated["topic"] = canonical
-
-    if required_topic and _normalize_topic_name(canonical) != _normalize_topic_name(required_topic):
-        return f'Expected exact verification topic "{required_topic}", but AI generated "{canonical}".'
-
-    expected_key = expected_concept_key_for_topic(canonical)
-    actual_key = str(generated.get("concept_key", "OTHER") or "OTHER").strip().upper()
-
-    if expected_key and actual_key != expected_key:
-        return (
-            f'Topic/concept mismatch: "{canonical}" should primarily test '
-            f'{expected_key}, but generated concept_key was {actual_key}.'
-        )
-
-    return ""
-
-
-def viva_question_matches_topic(topic, viva_question):
-    """Fast guard for foundation topics that commonly drift to incidental code logic."""
-    topic_name = str(topic or "").strip().lower()
-    viva = str(viva_question or "").strip().lower()
-
-    if not viva:
-        return False
-
-    if topic_name == "java program structure":
-        forbidden = (
-            "short-circuit",
-            "short circuit",
-            "if-else",
-            "if else",
-            "switch statement",
-            "switch case",
-            "loop",
-        )
-        if any(word in viva for word in forbidden):
-            return False
-
-        required = (
-            "main",
-            "class",
-            "entry point",
-            "program structure",
-            "method signature",
-            "import",
-        )
-        return any(word in viva for word in required)
-
-    if topic_name == "java tokens":
-        return any(
-            word in viva
-            for word in (
-                "token",
-                "keyword",
-                "identifier",
-                "literal",
-                "operator",
-                "separator",
-            )
-        )
-
-    if topic_name in ("java virtual machine", "jvm"):
-        return any(word in viva for word in ("jvm", "bytecode", "runtime", "class loader"))
-
-    if topic_name in ("java development kit", "jdk"):
-        return any(word in viva for word in ("jdk", "javac", "development", "compiler"))
-
-    if topic_name in ("java runtime environment", "jre"):
-        return any(word in viva for word in ("jre", "runtime environment", "jvm"))
-
-    if topic_name == "java compiler":
-        return any(word in viva for word in ("compiler", "javac", "bytecode"))
-
-    return True
-
-
 def default_state():
     return {
         "student_id": None,
@@ -848,8 +698,6 @@ STRICT RULES:
 1. Use ONLY the uploaded syllabus topics.
 2. Use the detected programming language: {language}.
 3. The question must DIRECTLY test the selected topic.
-3A. The selected syllabus topic must be the PRIMARY SKILL needed to solve the problem, not merely a construct that appears incidentally in the code.
-3B. Example: if topic = Java Program Structure, test class Main, the main method, imports/entry point/program layout. Do NOT turn it into a conditionals, loops, arrays, or switch problem.
 4. Never replace a language-specific concept with a loose equivalent.
 5. Do not repeat previous questions.
 6. Keep input/output deterministic.
@@ -1211,9 +1059,6 @@ def analyze_code(request):
                         "concept_key"
                     ],
                     "misconception": None,
-                    "error_category": "none",
-                    "topic_related": False,
-                    "topic_misconception": "",
                     "explanation": "The solution correctly solves the problem and passes all hidden tests.",
                     "hint": "No correction is needed."
                 }
@@ -1236,39 +1081,14 @@ STUDENT CODE:
 REAL TEST RESULTS:
 {json.dumps(results, indent=2)}
 
-Identify the SINGLE MAIN reason the program failed.
-
-IMPORTANT CLASSIFICATION RULE:
-The programming QUESTION TOPIC is:
-{question.get("topic", "Programming")}
-
-A coding error is NOT automatically a misconception about the question topic.
-For example, a wrong loop index inside a Pointer-to-Pointer problem is an
-algorithm/indexing error unless the student's use of pointer-to-pointer is
-itself wrong. Markdown backticks inside C source are formatting/syntax errors,
-not pointer misconceptions.
-
-Classify the failure into ONE error_category:
-- topic_concept
-- algorithm_logic
-- syntax_formatting
-- runtime_memory
-- input_output
-- other
-
-Set topic_related=true ONLY when the failure demonstrates misunderstanding of
-the exact syllabus topic. If topic_related=false, topic_misconception MUST be
-an empty string.
+Identify the SINGLE MAIN misconception.
 
 Return ONLY JSON:
 
 {{
     "has_misconception": true,
     "concept_key": "{question["concept_key"]}",
-    "misconception": "Main coding mistake",
-    "error_category": "algorithm_logic",
-    "topic_related": false,
-    "topic_misconception": "",
+    "misconception": "Main mistake",
     "explanation": "Why the program failed",
     "hint": "Helpful clue"
 }}
@@ -1291,60 +1111,6 @@ Return ONLY JSON:
         diagnosis[
             "has_misconception"
         ] = True
-
-        allowed_categories = {
-            "topic_concept",
-            "algorithm_logic",
-            "syntax_formatting",
-            "runtime_memory",
-            "input_output",
-            "other",
-        }
-
-        category = str(
-            diagnosis.get(
-                "error_category",
-                "other"
-            )
-            or "other"
-        ).strip().lower()
-
-        if category not in allowed_categories:
-            category = "other"
-
-        diagnosis[
-            "error_category"
-        ] = category
-
-        topic_related = bool(
-            diagnosis.get(
-                "topic_related",
-                False
-            )
-        )
-
-        diagnosis[
-            "topic_related"
-        ] = topic_related
-
-        if topic_related:
-            topic_misconception = str(
-                diagnosis.get(
-                    "topic_misconception",
-                    ""
-                )
-                or diagnosis.get(
-                    "misconception",
-                    ""
-                )
-                or ""
-            ).strip()
-        else:
-            topic_misconception = ""
-
-        diagnosis[
-            "topic_misconception"
-        ] = topic_misconception
 
         return JsonResponse({
             "test_score": score,
@@ -1404,40 +1170,6 @@ def tutor_help(request):
             )
         )
 
-        topic_related = bool(
-            data.get(
-                "topic_related",
-                True
-            )
-        )
-
-        error_category = str(
-            data.get(
-                "error_category",
-                "topic_concept"
-            )
-            or "topic_concept"
-        ).strip()
-
-
-        expected_topic_concept = expected_concept_key_for_topic(
-            topic
-        )
-
-        if (
-            expected_topic_concept
-            and concept != expected_topic_concept
-        ):
-            print(
-                "TUTOR CONCEPT REALIGNED:",
-                concept,
-                "->",
-                expected_topic_concept,
-                "for topic",
-                topic,
-            )
-            concept = expected_topic_concept
-
         if passed_code:
             tutor_mode = """
 The student's code already passes all hidden tests.
@@ -1462,15 +1194,14 @@ VIVA QUALITY RULES:
 
 This is a concept-verification step, not remediation.
 """
-        elif topic_related:
+        else:
             tutor_mode = """
-The student's code failed because of a misconception that IS related to the
-exact syllabus topic.
+The student's code failed.
 
 Generate:
 1. One progressive conceptual hint.
 2. One short targeted practice problem.
-3. ONE clear viva question that checks the exact topic misconception.
+3. ONE clear viva question that checks the exact misconception.
 4. Three concise expected concepts that directly match that viva question.
 
 VIVA QUALITY RULES:
@@ -1484,43 +1215,17 @@ VIVA QUALITY RULES:
 
 Do not reveal the complete solution.
 """
-        else:
-            tutor_mode = """
-The student's code failed, but the detected coding error is NOT evidence of a
-misconception about the exact syllabus topic.
-
-Generate:
-1. One short progressive hint that helps fix the actual coding error.
-2. One very short practice problem for that coding error.
-3. ONE viva question that verifies understanding of the PROGRAMMING TOPIC,
-   not the unrelated coding error.
-4. Three concise expected concepts for that topic viva.
-
-Do not turn an indexing, formatting, input/output, or unrelated syntax error
-into a false weakness for the syllabus topic.
-Do not reveal the complete solution.
-"""
 
         task = Task(
             description=f"""
-EXACT UPLOADED SYLLABUS TOPIC:
+PROGRAMMING TOPIC:
 {topic}
 
 BROAD CONCEPT:
 {concept}
 
-ALIGNMENT RULE:
-The exact uploaded syllabus topic above is authoritative. Incidental constructs used by the student's code must NOT replace it. The viva question and expected concepts must primarily test "{topic}".
-For example, Java Program Structure must focus on class/program layout, main method/entry point/imports, not if-else, switch, loops, or short-circuiting merely because the sample program uses them.
-
-MISCONCEPTION / CODING ERROR:
+MISCONCEPTION:
 {misconception}
-
-ERROR CATEGORY:
-{error_category}
-
-IS THIS ERROR RELATED TO THE EXACT TOPIC?
-{topic_related}
 
 {tutor_mode}
 
@@ -1548,44 +1253,9 @@ Return ONLY JSON:
             verbose=False
         )
 
-        result = None
-        last_tutor_error = None
-
-        for tutor_attempt in range(1, 4):
-            try:
-                candidate = clean_json_output(
-                    crew.kickoff().raw
-                )
-
-                viva_question = str(
-                    candidate.get(
-                        "viva_question",
-                        ""
-                    )
-                ).strip()
-
-                if not viva_question_matches_topic(
-                    topic,
-                    viva_question
-                ):
-                    raise ValueError(
-                        f'Viva drifted away from exact syllabus topic "{topic}".'
-                    )
-
-                result = candidate
-                break
-
-            except Exception as error:
-                last_tutor_error = error
-                print(
-                    f"TUTOR ALIGNMENT ATTEMPT {tutor_attempt} FAILED:",
-                    error
-                )
-
-        if result is None:
-            raise ValueError(
-                f"Could not generate a topic-aligned viva after 3 attempts: {last_tutor_error}"
-            )
+        result = clean_json_output(
+            crew.kickoff().raw
+        )
 
         expected = result.get(
             "expected_concepts",

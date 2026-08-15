@@ -1,14 +1,12 @@
 import json
 import uuid
-import re
-import time
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from crewai import Agent, Task, Crew, Process
 
-from .models import StudentProfile, ConceptProgress, TopicProgress, Attempt
+from .models import StudentProfile, ConceptProgress, Attempt
 
 from .views import (
     load_state,
@@ -16,7 +14,6 @@ from .views import (
     llm,
     clean_json_output,
     generate_tests_for_question,
-    validate_generated_question_alignment,
 )
 
 
@@ -37,120 +34,91 @@ adaptive_agent = Agent(
 )
 
 
-def _trusted_topic_memory(student_id, topic):
-    """
-    Return only V4-classified topic-related misconceptions.
-    Legacy unclassified mistakes are not trusted as conceptual evidence.
-    """
-    prefix = "TOPIC_RELATED::"
-
-    values = []
-
-    for attempt in Attempt.objects.filter(
-        student_id=student_id,
-        topic=topic,
-    ).order_by("created_at"):
-        text = str(
-            attempt.misconception or ""
-        ).strip()
-
-        if text.startswith(prefix):
-            cleaned = text[len(prefix):].strip()
-
-            if cleaned:
-                values.append(cleaned)
-
-    return {
-        "count": len(values),
-        "last": values[-1] if values else "",
-    }
-
-
 def get_weakest_concept(student_id):
 
     if not student_id:
         return None
 
     try:
-        rows = TopicProgress.objects.filter(
+        rows = ConceptProgress.objects.filter(
             student_id=student_id
         )
 
-        # 1. Highest priority:
-        # exact topics that explicitly require verification.
-        verification_rows = rows.filter(
-            verification_required=True,
-            verification_passed=False
-        ).order_by(
-            "mastery_score",
-            "-updated_at"
-        )
+        state = load_state()
+        history = state.get("history", [])
 
-        row = verification_rows.first()
+        verification_candidates = []
+        weak_candidates = []
 
-        if row:
-            return {
-                "concept_key":
-                    row.concept_key,
-                "exact_topic":
-                    row.topic,
-                "mastery_score":
-                    row.mastery_score,
-                "status":
-                    row.status,
-                "last_misconception":
-                    _trusted_topic_memory(
-                        student_id,
-                        row.topic
-                    )["last"],
-                "misconception_count":
-                    _trusted_topic_memory(
-                        student_id,
-                        row.topic
-                    )["count"],
-                "average_hint_level":
-                    row.average_hint_level,
-                "reason":
-                    "verification"
+        for row in rows:
+
+            average = row.average_score
+
+            latest_attempt = (
+                Attempt.objects.filter(
+                    student_id=student_id,
+                    concept_key=row.concept_key
+                )
+                .order_by("-created_at")
+                .first()
+            )
+
+            exact_topic = None
+            last_misconception = row.last_misconception or ""
+
+            if latest_attempt:
+                latest_problem = (latest_attempt.question or "").strip()
+
+                for item in reversed(history):
+                    if (
+                        item.get("concept_key") == row.concept_key
+                        and item.get("problem", "").strip() == latest_problem
+                    ):
+                        exact_topic = item.get("topic")
+                        break
+
+            candidate = {
+                "concept_key": row.concept_key,
+                "exact_topic": exact_topic,
+                "average_score": average,
+                "failures": row.failures,
+                "mastered": row.mastered,
+                "last_misconception": last_misconception,
             }
 
-        # 2. Then target the weakest exact topic that is not mastered.
-        weak_row = (
-            rows.exclude(
-                status="Mastered"
-            )
-            .order_by(
-                "mastery_score",
-                "-updated_at"
-            )
-            .first()
-        )
+            # A failed concept must be independently verified.
+            # Correcting the same original question is not enough.
+            if (
+                row.failures > 0
+                and row.mastered <= row.failures
+            ):
+                candidate["reason"] = "verification"
+                verification_candidates.append(candidate)
 
-        if weak_row:
-            return {
-                "concept_key":
-                    weak_row.concept_key,
-                "exact_topic":
-                    weak_row.topic,
-                "mastery_score":
-                    weak_row.mastery_score,
-                "status":
-                    weak_row.status,
-                "last_misconception":
-                    _trusted_topic_memory(
-                        student_id,
-                        weak_row.topic
-                    )["last"],
-                "misconception_count":
-                    _trusted_topic_memory(
-                        student_id,
-                        weak_row.topic
-                    )["count"],
-                "average_hint_level":
-                    weak_row.average_hint_level,
-                "reason":
-                    "weakness"
-            }
+            elif average < 80:
+                candidate["reason"] = "weakness"
+                weak_candidates.append(candidate)
+
+        if verification_candidates:
+
+            verification_candidates.sort(
+                key=lambda item: (
+                    -item["failures"],
+                    item["mastered"],
+                    item["average_score"]
+                )
+            )
+
+            return verification_candidates[0]
+
+        if weak_candidates:
+
+            weak_candidates.sort(
+                key=lambda item:
+                    item["average_score"]
+            )
+
+            return weak_candidates[0]
 
         return None
 
@@ -184,99 +152,61 @@ def generate_adaptive_question(
 
     if weak_concept:
 
-        exact_topic = weak_concept.get(
-            "exact_topic"
-        )
+        exact_topic = weak_concept.get("exact_topic")
+        concept_key = weak_concept.get("concept_key", "OTHER")
+        reason = weak_concept.get("reason", "weakness")
+        misconception = weak_concept.get("last_misconception", "")
 
-        concept_key = weak_concept.get(
-            "concept_key",
-            "OTHER"
-        )
-
-        reason = weak_concept.get(
-            "reason",
-            "weakness"
-        )
-
-        misconception = weak_concept.get(
-            "last_misconception",
-            ""
-        )
-
-        misconception_count = weak_concept.get(
-            "misconception_count",
-            0
-        )
-
-        mastery_score = weak_concept.get(
-            "mastery_score",
-            0
-        )
-
-        if (
-            exact_topic
-            and reason == "verification"
-        ):
-
+        if exact_topic and reason == "verification":
             weakness_instruction = f"""
-THIS IS A REQUIRED INDEPENDENT VERIFICATION QUESTION.
+THIS IS A REQUIRED VERIFICATION QUESTION.
 
-EXACT REQUIRED TOPIC:
-{exact_topic}
-
-BROAD CONCEPT:
+Broad concept:
 {concept_key}
 
-CURRENT TOPIC MASTERY:
-{mastery_score}%
+Exact unresolved syllabus topic:
+{exact_topic}
 
-PREVIOUS MISCONCEPTION:
+Previous misconception:
 {misconception}
 
-MISCONCEPTION OCCURRENCES:
-{misconception_count}
+You MUST generate a DIFFERENT problem that directly tests the
+EXACT topic "{exact_topic}".
 
-NON-NEGOTIABLE RULES:
+Do NOT switch to another topic even if it belongs to the same
+broad concept category.
 
-1. The generated question MUST directly test "{exact_topic}".
-2. Do NOT switch to another syllabus topic.
-3. Do NOT merely reword the previous problem.
-4. Use a different task/context/input pattern so this is independent evidence.
-5. Do not include a hint or solution inside the problem statement.
+The new problem must not repeat the previous question.
 """
-
         elif exact_topic:
-
             weakness_instruction = f"""
-TARGET THE STUDENT'S EXACT WEAK TOPIC:
+STUDENT'S CURRENT WEAKNESS:
 
+Broad concept:
+{concept_key}
+
+Exact syllabus topic:
 {exact_topic}
 
-BROAD CONCEPT:
-{concept_key}
-
-CURRENT TOPIC MASTERY:
-{mastery_score}%
-
-PREVIOUS MISCONCEPTION:
+Previous misconception:
 {misconception}
 
-Generate a new problem that directly reinforces "{exact_topic}".
-Do not switch to a sibling topic and do not repeat a previous problem.
+Prefer a new problem that directly reinforces "{exact_topic}".
+Do not repeat the previous question.
 """
-
         else:
-
             weakness_instruction = f"""
-TARGET THIS WEAK CONCEPT:
+STUDENT'S CURRENT WEAK CONCEPT:
 
 {concept_key}
 
-PREVIOUS MISCONCEPTION:
+Previous misconception:
 {misconception}
 
-Generate a new question inside the uploaded syllabus that directly
-reinforces this weakness without repeating a previous question.
+Generate a new question that reinforces this concept while
+remaining strictly inside the uploaded syllabus.
+
+Do not repeat the previous question.
 """
 
 
@@ -360,8 +290,6 @@ STRICT RULES:
 1. Stay strictly inside the uploaded syllabus.
 2. Use exactly the detected programming language: {language}.
 3. The question must DIRECTLY test the selected topic.
-3A. The selected syllabus topic must be the PRIMARY SKILL required to solve the problem, not merely something that appears incidentally in the code.
-3B. Example: Java Program Structure must test class Main, main method/entry point/imports/program layout. Do NOT label a conditionals, switch, loops, arrays, or short-circuiting problem as Java Program Structure.
 4. Never create a "{language} adaptation" of a concept from
    another programming language.
 5. Never replace a language-specific concept with a loosely
@@ -426,128 +354,10 @@ Return ONLY valid JSON:
     )
 
 
-    # AI providers occasionally return malformed JSON or rate-limit errors.
-    # Retry safely, but WAIT when the provider tells us to slow down.
-    last_error = None
+    result = crew.kickoff()
 
-    for attempt_number in range(1, 4):
-
-        try:
-            result = crew.kickoff()
-
-            generated = clean_json_output(
-                result.raw
-            )
-
-            if not isinstance(generated, dict):
-                raise ValueError(
-                    "Generated question was not a JSON object."
-                )
-
-            topic = str(generated.get("topic", "")).strip()
-            problem = str(generated.get("problem", "")).strip()
-            tests = generated.get("tests", [])
-
-            if not topic:
-                raise ValueError(
-                    "Generated question has no topic."
-                )
-
-            if not problem:
-                raise ValueError(
-                    "Generated question has no problem statement."
-                )
-
-            if not isinstance(tests, list) or len(tests) != 3:
-                raise ValueError(
-                    "Exactly 3 hidden tests were not generated."
-                )
-
-            for index, test in enumerate(tests, start=1):
-                if not isinstance(test, dict):
-                    raise ValueError(
-                        f"Hidden test {index} is invalid."
-                    )
-
-                if "input" not in test or "expected" not in test:
-                    raise ValueError(
-                        f"Hidden test {index} is incomplete."
-                    )
-
-            required_topic = None
-            if weak_concept:
-                required_topic = weak_concept.get(
-                    "exact_topic"
-                )
-
-            alignment_error = validate_generated_question_alignment(
-                generated,
-                topics,
-                required_topic=required_topic,
-            )
-
-            if alignment_error:
-                raise ValueError(
-                    "TOPIC ALIGNMENT REJECTED: " + alignment_error
-                )
-
-            if attempt_number > 1:
-                print(
-                    "ADAPTIVE QUESTION RECOVERED ON ATTEMPT",
-                    attempt_number
-                )
-
-            return generated
-
-        except Exception as error:
-            last_error = error
-            message = str(error)
-            lowered = message.lower()
-
-            print(
-                f"ADAPTIVE QUESTION AI ATTEMPT {attempt_number} FAILED:",
-                error
-            )
-
-            if attempt_number >= 3:
-                break
-
-            is_rate_limit = (
-                "rate limit" in lowered
-                or "rate_limit" in lowered
-                or "rate_limit_exceeded" in lowered
-                or "tokens per minute" in lowered
-            )
-
-            if is_rate_limit:
-                match = re.search(
-                    r"try again in\s*([0-9.]+)s",
-                    message,
-                    re.IGNORECASE
-                )
-
-                if match:
-                    wait_seconds = float(match.group(1)) + 1.5
-                else:
-                    wait_seconds = 10.0 * attempt_number
-
-                wait_seconds = max(
-                    3.0,
-                    min(wait_seconds, 35.0)
-                )
-
-                print(
-                    f"GROQ RATE LIMIT: waiting {wait_seconds:.1f}s before retry..."
-                )
-
-                time.sleep(wait_seconds)
-
-            else:
-                time.sleep(1.0)
-
-    raise ValueError(
-        "AI question generation failed after 3 attempts. "
-        f"Last error: {last_error}"
+    return clean_json_output(
+        result.raw
     )
 
 
@@ -576,24 +386,6 @@ def adaptive_next_question(request):
         state = load_state()
 
 
-        state_student_id = state.get(
-            "student_id"
-        )
-
-        if (
-            state_student_id
-            and str(state_student_id)
-            != str(student_id)
-        ):
-            return JsonResponse(
-                {
-                    "error":
-                        "Upload a syllabus for this student session first."
-                },
-                status=400
-            )
-
-
         if not state.get(
             "syllabus_text"
         ):
@@ -618,14 +410,6 @@ def adaptive_next_question(request):
 
         weak_concept = get_weakest_concept(
             student_id
-        )
-
-
-        is_verification = bool(
-            weak_concept
-            and weak_concept.get(
-                "reason"
-            ) == "verification"
         )
 
 
@@ -697,9 +481,6 @@ def adaptive_next_question(request):
                 "adaptation_reason":
                     "This is an original question from the uploaded syllabus.",
 
-                "is_verification":
-                    False,
-
                 "problem":
                     problem,
 
@@ -770,9 +551,6 @@ def adaptive_next_question(request):
                         "Selected from the uploaded syllabus."
                     ),
 
-                "is_verification":
-                    is_verification,
-
                 "problem":
                     generated.get(
                         "problem",
@@ -817,12 +595,6 @@ def adaptive_next_question(request):
 
             "concept_key":
                 question["concept_key"],
-
-            "is_verification":
-                question.get(
-                    "is_verification",
-                    False
-                ),
 
             "problem":
                 question["problem"]
@@ -876,12 +648,6 @@ def adaptive_next_question(request):
 
             "weak_concept":
                 weak_concept,
-
-            "is_verification":
-                question.get(
-                    "is_verification",
-                    False
-                ),
 
             "adaptation_reason":
                 question["adaptation_reason"]

@@ -7,13 +7,10 @@ function ProgressiveHints({
   problem,
   conceptKey,
   misconception,
-  firstHint,
-  initialLevel = 1,
-  onLevelChange
+  firstHint
 }) {
 
-  const [level, setLevel] =
-    useState(initialLevel);
+  const [level, setLevel] = useState(1);
 
   const [hint, setHint] = useState(
     firstHint || ""
@@ -67,12 +64,6 @@ function ProgressiveHints({
       setLevel(
         nextLevel
       );
-
-      if (onLevelChange) {
-        onLevelChange(
-          nextLevel
-        );
-      }
 
 
     } catch (error) {

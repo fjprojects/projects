@@ -1,9 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import "./App.css";
-import StudentStart from "./StudentStart";
-import ProgressiveHints from "./ProgressiveHints";
-import MasteryInsight from "./components/MasteryInsight";
 
 const API = "http://127.0.0.1:8000/api";
 
@@ -23,21 +20,6 @@ function App() {
           JSON.parse(savedStudent);
 
         setStudent(parsedStudent);
-
-        // RESTORE_PROGRESS_AFTER_REFRESH
-        axios
-          .get(
-            `${API}/progress/?student_id=${parsedStudent.student_id}`
-          )
-          .then((response) => {
-            setProgress(response.data);
-          })
-          .catch((error) => {
-            console.error(
-              "Could not restore dashboard:",
-              error
-            );
-          });
 
       } catch (error) {
 
@@ -95,9 +77,6 @@ function App() {
 
   const [loading, setLoading] =
     useState(false);
-
-  const [hintLevelUsed, setHintLevelUsed] =
-    useState(0);
 
 
   // ======================================================
@@ -253,8 +232,6 @@ function App() {
     setVivaAnswer("");
 
     setEvaluation(null);
-
-    setHintLevelUsed(0);
 
   };
 
@@ -524,8 +501,6 @@ function App() {
 
       setEvaluation(null);
 
-      setHintLevelUsed(0);
-
 
       const response =
         await axios.post(
@@ -635,8 +610,6 @@ function App() {
         tutorResponse.data
       );
 
-      setHintLevelUsed(1);
-
 
     } catch (error) {
 
@@ -676,7 +649,7 @@ function App() {
       const hintLevel =
         analysis?.test_score === 100
           ? 0
-          : hintLevelUsed;
+          : 1;
 
 
       const response =
@@ -781,9 +754,6 @@ function App() {
           topicProgress?.mastery_score ??
           response.data.topic_evidence_score,
 
-        topic_progress:
-          topicProgress || null,
-
         evaluation: {
           ...response.data.evaluation,
 
@@ -839,7 +809,6 @@ function App() {
   setCorrectedCode("");
   setVivaAnswer("");
   setEvaluation(null);
-  setHintLevelUsed(0);
 };
 
 
@@ -988,40 +957,69 @@ function App() {
 
       {!student ? (
 
-        <StudentStart
-          onStudentStarted={async (studentData) => {
+        <div className="card">
 
-            setStudent(
-              studentData
-            );
+          <h2>
+            Start Learning Session
+          </h2>
 
-            setStudentName("");
-            setFile(null);
-            setSyllabus(null);
-            setQuestion(null);
-            setCode("");
-            setAnalysis(null);
-            setTutor(null);
-            setCorrectedCode("");
-            setVivaAnswer("");
-            setEvaluation(null);
-            setProgress(null);
-            setHintLevelUsed(0);
 
-            await loadProgress(
-              studentData.student_id
-            );
+          <p>
+            Enter your name to create your
+            personalized LabTwin profile.
+          </p>
 
-          }}
-        />
+
+          <input
+
+            type="text"
+
+            value={
+              studentName
+            }
+
+            onChange={(e) =>
+              setStudentName(
+                e.target.value
+              )
+            }
+
+            placeholder={
+              "Student name"
+            }
+
+          />
+
+
+          <br />
+          <br />
+
+
+          <button
+            onClick={
+              startStudent
+            }
+            disabled={
+              loading
+            }
+          >
+
+            Start Session
+
+          </button>
+
+        </div>
 
       ) : (
 
         <div className="card">
 
           <h2>
-            Welcome, {student.name}
+            Welcome, {
+              student.name
+            }
           </h2>
+
 
           <button
             onClick={
@@ -1034,6 +1032,7 @@ function App() {
         </div>
 
       )}
+
 
       {/* ================================================= */}
       {/* DASHBOARD */}
@@ -1811,29 +1810,16 @@ function App() {
 
             <>
 
-              <ProgressiveHints
-                problem={
-                  question?.problem || ""
-                }
-                conceptKey={
-                  analysis?.diagnosis?.concept_key ||
-                  question?.concept_key ||
-                  "OTHER"
-                }
-                misconception={
-                  analysis?.diagnosis?.misconception ||
-                  ""
-                }
-                firstHint={
+              <h3>
+                Progressive Hint
+              </h3>
+
+
+              <p>
+                {
                   tutor.hint
                 }
-                initialLevel={
-                  1
-                }
-                onLevelChange={
-                  setHintLevelUsed
-                }
-              />
+              </p>
 
 
               <h3>
@@ -2070,175 +2056,6 @@ function App() {
             </p>
 
           </div>
-
-          <MasteryInsight
-
-            topic={
-              question?.topic ||
-              "Current Topic"
-            }
-
-            mastery={
-              Number(
-                evaluation?.topic_mastery ??
-                0
-              )
-            }
-
-            status={
-              evaluation?.evaluation?.status ||
-              "Needs Verification"
-            }
-
-            firstAttemptScore={
-              Number(
-                analysis?.test_score ??
-                0
-              )
-            }
-
-            codeScore={
-              Number(
-                evaluation?.retest_score ??
-                0
-              )
-            }
-
-            vivaScore={
-              Number(
-                evaluation?.evaluation?.score ??
-                0
-              )
-            }
-
-            verificationPassed={
-              Boolean(
-                evaluation
-                  ?.topic_progress
-                  ?.verification_passed
-              )
-            }
-
-            coreCorrectness={
-              evaluation
-                ?.evaluation
-                ?.dimensions
-                ?.core_correctness
-                ?.rating != null
-
-                ? Number(
-                    evaluation
-                      .evaluation
-                      .dimensions
-                      .core_correctness
-                      .rating
-                  ) * 25
-
-                : null
-            }
-
-            mechanism={
-              evaluation
-                ?.evaluation
-                ?.dimensions
-                ?.mechanism
-                ?.rating != null
-
-                ? Number(
-                    evaluation
-                      .evaluation
-                      .dimensions
-                      .mechanism
-                      .rating
-                  ) * 25
-
-                : null
-            }
-
-            application={
-              evaluation
-                ?.evaluation
-                ?.dimensions
-                ?.application
-                ?.rating != null
-
-                ? Number(
-                    evaluation
-                      .evaluation
-                      .dimensions
-                      .application
-                      .rating
-                  ) * 25
-
-                : null
-            }
-
-            coverage={
-              evaluation
-                ?.evaluation
-                ?.dimensions
-                ?.question_coverage
-                ?.rating != null
-
-                ? Number(
-                    evaluation
-                      .evaluation
-                      .dimensions
-                      .question_coverage
-                      .rating
-                  ) * 25
-
-                : null
-            }
-
-            hintLevel={
-              Number(
-                evaluation?.hint_level ??
-                hintLevelUsed ??
-                0
-              )
-            }
-
-            attempts={
-              Number(
-                evaluation
-                  ?.topic_progress
-                  ?.attempts ??
-                0
-              )
-            }
-
-            misconception={
-              evaluation
-                ?.topic_progress
-                ?.last_misconception ||
-
-              analysis
-                ?.diagnosis
-                ?.topic_misconception ||
-
-              ""
-            }
-
-            recurringMisconception={
-              Number(
-                evaluation
-                  ?.topic_progress
-                  ?.misconception_count ??
-                0
-              ) > 1
-            }
-
-            labReadiness={
-              Number(
-                evaluation?.lab_readiness ??
-                progress?.lab_readiness ??
-                0
-              )
-            }
-
-          />
-
 
 
           <h3>

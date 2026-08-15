@@ -16,7 +16,6 @@ from .views import (
     llm,
     clean_json_output,
     generate_tests_for_question,
-    validate_generated_question_alignment,
 )
 
 
@@ -360,8 +359,6 @@ STRICT RULES:
 1. Stay strictly inside the uploaded syllabus.
 2. Use exactly the detected programming language: {language}.
 3. The question must DIRECTLY test the selected topic.
-3A. The selected syllabus topic must be the PRIMARY SKILL required to solve the problem, not merely something that appears incidentally in the code.
-3B. Example: Java Program Structure must test class Main, main method/entry point/imports/program layout. Do NOT label a conditionals, switch, loops, arrays, or short-circuiting problem as Java Program Structure.
 4. Never create a "{language} adaptation" of a concept from
    another programming language.
 5. Never replace a language-specific concept with a loosely
@@ -473,23 +470,6 @@ Return ONLY valid JSON:
                     raise ValueError(
                         f"Hidden test {index} is incomplete."
                     )
-
-            required_topic = None
-            if weak_concept:
-                required_topic = weak_concept.get(
-                    "exact_topic"
-                )
-
-            alignment_error = validate_generated_question_alignment(
-                generated,
-                topics,
-                required_topic=required_topic,
-            )
-
-            if alignment_error:
-                raise ValueError(
-                    "TOPIC ALIGNMENT REJECTED: " + alignment_error
-                )
 
             if attempt_number > 1:
                 print(

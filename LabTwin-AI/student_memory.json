@@ -1,0 +1,29 @@
+{
+    "student_name": "Francis",
+    "weaknesses": [
+        {
+            "concept": "Java String Comparison",
+            "misconception": "Uses == instead of equals() for comparing String contents",
+            "occurrences": 2,
+            "status": "Corrected"
+        },
+        {
+            "concept": "Using the `==` operator to compare the contents of two `String` objects.",
+            "misconception": "The student believes that `==` checks whether two strings have the same textual value, just as it does for primitive types.",
+            "occurrences": 1,
+            "status": "Needs Retest"
+        },
+        {
+            "concept": "Arithmetic operations (addition vs subtraction)",
+            "misconception": "The student believes that using the subtraction operator (`-`) will produce the sum of two numbers.",
+            "occurrences": 1,
+            "status": "Needs Retest"
+        },
+        {
+            "concept_key": "ARITHMETIC_OPERATORS",
+            "misconception": "Used subtraction instead of addition",
+            "occurrences": 1,
+            "status": "Corrected"
+        }
+    ]
+}

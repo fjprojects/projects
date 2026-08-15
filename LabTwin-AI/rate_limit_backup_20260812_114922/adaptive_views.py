@@ -1,7 +1,5 @@
 import json
 import uuid
-import re
-import time
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -16,7 +14,6 @@ from .views import (
     llm,
     clean_json_output,
     generate_tests_for_question,
-    validate_generated_question_alignment,
 )
 
 
@@ -35,35 +32,6 @@ adaptive_agent = Agent(
     llm=llm,
     verbose=False
 )
-
-
-def _trusted_topic_memory(student_id, topic):
-    """
-    Return only V4-classified topic-related misconceptions.
-    Legacy unclassified mistakes are not trusted as conceptual evidence.
-    """
-    prefix = "TOPIC_RELATED::"
-
-    values = []
-
-    for attempt in Attempt.objects.filter(
-        student_id=student_id,
-        topic=topic,
-    ).order_by("created_at"):
-        text = str(
-            attempt.misconception or ""
-        ).strip()
-
-        if text.startswith(prefix):
-            cleaned = text[len(prefix):].strip()
-
-            if cleaned:
-                values.append(cleaned)
-
-    return {
-        "count": len(values),
-        "last": values[-1] if values else "",
-    }
 
 
 def get_weakest_concept(student_id):
@@ -99,15 +67,9 @@ def get_weakest_concept(student_id):
                 "status":
                     row.status,
                 "last_misconception":
-                    _trusted_topic_memory(
-                        student_id,
-                        row.topic
-                    )["last"],
+                    row.last_misconception,
                 "misconception_count":
-                    _trusted_topic_memory(
-                        student_id,
-                        row.topic
-                    )["count"],
+                    row.misconception_count,
                 "average_hint_level":
                     row.average_hint_level,
                 "reason":
@@ -137,15 +99,9 @@ def get_weakest_concept(student_id):
                 "status":
                     weak_row.status,
                 "last_misconception":
-                    _trusted_topic_memory(
-                        student_id,
-                        weak_row.topic
-                    )["last"],
+                    weak_row.last_misconception,
                 "misconception_count":
-                    _trusted_topic_memory(
-                        student_id,
-                        weak_row.topic
-                    )["count"],
+                    weak_row.misconception_count,
                 "average_hint_level":
                     weak_row.average_hint_level,
                 "reason":
@@ -360,8 +316,6 @@ STRICT RULES:
 1. Stay strictly inside the uploaded syllabus.
 2. Use exactly the detected programming language: {language}.
 3. The question must DIRECTLY test the selected topic.
-3A. The selected syllabus topic must be the PRIMARY SKILL required to solve the problem, not merely something that appears incidentally in the code.
-3B. Example: Java Program Structure must test class Main, main method/entry point/imports/program layout. Do NOT label a conditionals, switch, loops, arrays, or short-circuiting problem as Java Program Structure.
 4. Never create a "{language} adaptation" of a concept from
    another programming language.
 5. Never replace a language-specific concept with a loosely
@@ -426,8 +380,8 @@ Return ONLY valid JSON:
     )
 
 
-    # AI providers occasionally return malformed JSON or rate-limit errors.
-    # Retry safely, but WAIT when the provider tells us to slow down.
+    # AI providers occasionally return truncated or malformed JSON.
+    # Retry question generation before surfacing an error to the student.
     last_error = None
 
     for attempt_number in range(1, 4):
@@ -439,14 +393,32 @@ Return ONLY valid JSON:
                 result.raw
             )
 
-            if not isinstance(generated, dict):
+            if not isinstance(
+                generated,
+                dict
+            ):
                 raise ValueError(
                     "Generated question was not a JSON object."
                 )
 
-            topic = str(generated.get("topic", "")).strip()
-            problem = str(generated.get("problem", "")).strip()
-            tests = generated.get("tests", [])
+            topic = str(
+                generated.get(
+                    "topic",
+                    ""
+                )
+            ).strip()
+
+            problem = str(
+                generated.get(
+                    "problem",
+                    ""
+                )
+            ).strip()
+
+            tests = generated.get(
+                "tests",
+                []
+            )
 
             if not topic:
                 raise ValueError(
@@ -458,38 +430,36 @@ Return ONLY valid JSON:
                     "Generated question has no problem statement."
                 )
 
-            if not isinstance(tests, list) or len(tests) != 3:
+            if (
+                not isinstance(
+                    tests,
+                    list
+                )
+                or len(tests) != 3
+            ):
                 raise ValueError(
                     "Exactly 3 hidden tests were not generated."
                 )
 
-            for index, test in enumerate(tests, start=1):
-                if not isinstance(test, dict):
+            for index, test in enumerate(
+                tests,
+                start=1
+            ):
+                if not isinstance(
+                    test,
+                    dict
+                ):
                     raise ValueError(
                         f"Hidden test {index} is invalid."
                     )
 
-                if "input" not in test or "expected" not in test:
+                if (
+                    "input" not in test
+                    or "expected" not in test
+                ):
                     raise ValueError(
                         f"Hidden test {index} is incomplete."
                     )
-
-            required_topic = None
-            if weak_concept:
-                required_topic = weak_concept.get(
-                    "exact_topic"
-                )
-
-            alignment_error = validate_generated_question_alignment(
-                generated,
-                topics,
-                required_topic=required_topic,
-            )
-
-            if alignment_error:
-                raise ValueError(
-                    "TOPIC ALIGNMENT REJECTED: " + alignment_error
-                )
 
             if attempt_number > 1:
                 print(
@@ -501,49 +471,11 @@ Return ONLY valid JSON:
 
         except Exception as error:
             last_error = error
-            message = str(error)
-            lowered = message.lower()
 
             print(
                 f"ADAPTIVE QUESTION AI ATTEMPT {attempt_number} FAILED:",
                 error
             )
-
-            if attempt_number >= 3:
-                break
-
-            is_rate_limit = (
-                "rate limit" in lowered
-                or "rate_limit" in lowered
-                or "rate_limit_exceeded" in lowered
-                or "tokens per minute" in lowered
-            )
-
-            if is_rate_limit:
-                match = re.search(
-                    r"try again in\s*([0-9.]+)s",
-                    message,
-                    re.IGNORECASE
-                )
-
-                if match:
-                    wait_seconds = float(match.group(1)) + 1.5
-                else:
-                    wait_seconds = 10.0 * attempt_number
-
-                wait_seconds = max(
-                    3.0,
-                    min(wait_seconds, 35.0)
-                )
-
-                print(
-                    f"GROQ RATE LIMIT: waiting {wait_seconds:.1f}s before retry..."
-                )
-
-                time.sleep(wait_seconds)
-
-            else:
-                time.sleep(1.0)
 
     raise ValueError(
         "AI question generation failed after 3 attempts. "

@@ -16,7 +16,6 @@ from .views import (
     llm,
     clean_json_output,
     generate_tests_for_question,
-    validate_generated_question_alignment,
 )
 
 
@@ -35,35 +34,6 @@ adaptive_agent = Agent(
     llm=llm,
     verbose=False
 )
-
-
-def _trusted_topic_memory(student_id, topic):
-    """
-    Return only V4-classified topic-related misconceptions.
-    Legacy unclassified mistakes are not trusted as conceptual evidence.
-    """
-    prefix = "TOPIC_RELATED::"
-
-    values = []
-
-    for attempt in Attempt.objects.filter(
-        student_id=student_id,
-        topic=topic,
-    ).order_by("created_at"):
-        text = str(
-            attempt.misconception or ""
-        ).strip()
-
-        if text.startswith(prefix):
-            cleaned = text[len(prefix):].strip()
-
-            if cleaned:
-                values.append(cleaned)
-
-    return {
-        "count": len(values),
-        "last": values[-1] if values else "",
-    }
 
 
 def get_weakest_concept(student_id):
@@ -99,15 +69,9 @@ def get_weakest_concept(student_id):
                 "status":
                     row.status,
                 "last_misconception":
-                    _trusted_topic_memory(
-                        student_id,
-                        row.topic
-                    )["last"],
+                    row.last_misconception,
                 "misconception_count":
-                    _trusted_topic_memory(
-                        student_id,
-                        row.topic
-                    )["count"],
+                    row.misconception_count,
                 "average_hint_level":
                     row.average_hint_level,
                 "reason":
@@ -137,15 +101,9 @@ def get_weakest_concept(student_id):
                 "status":
                     weak_row.status,
                 "last_misconception":
-                    _trusted_topic_memory(
-                        student_id,
-                        weak_row.topic
-                    )["last"],
+                    weak_row.last_misconception,
                 "misconception_count":
-                    _trusted_topic_memory(
-                        student_id,
-                        weak_row.topic
-                    )["count"],
+                    weak_row.misconception_count,
                 "average_hint_level":
                     weak_row.average_hint_level,
                 "reason":
@@ -360,8 +318,6 @@ STRICT RULES:
 1. Stay strictly inside the uploaded syllabus.
 2. Use exactly the detected programming language: {language}.
 3. The question must DIRECTLY test the selected topic.
-3A. The selected syllabus topic must be the PRIMARY SKILL required to solve the problem, not merely something that appears incidentally in the code.
-3B. Example: Java Program Structure must test class Main, main method/entry point/imports/program layout. Do NOT label a conditionals, switch, loops, arrays, or short-circuiting problem as Java Program Structure.
 4. Never create a "{language} adaptation" of a concept from
    another programming language.
 5. Never replace a language-specific concept with a loosely
@@ -473,23 +429,6 @@ Return ONLY valid JSON:
                     raise ValueError(
                         f"Hidden test {index} is incomplete."
                     )
-
-            required_topic = None
-            if weak_concept:
-                required_topic = weak_concept.get(
-                    "exact_topic"
-                )
-
-            alignment_error = validate_generated_question_alignment(
-                generated,
-                topics,
-                required_topic=required_topic,
-            )
-
-            if alignment_error:
-                raise ValueError(
-                    "TOPIC ALIGNMENT REJECTED: " + alignment_error
-                )
 
             if attempt_number > 1:
                 print(

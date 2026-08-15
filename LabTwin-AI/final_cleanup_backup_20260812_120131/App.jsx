@@ -1,9 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import "./App.css";
-import StudentStart from "./StudentStart";
-import ProgressiveHints from "./ProgressiveHints";
-import MasteryInsight from "./components/MasteryInsight";
 
 const API = "http://127.0.0.1:8000/api";
 
@@ -23,21 +20,6 @@ function App() {
           JSON.parse(savedStudent);
 
         setStudent(parsedStudent);
-
-        // RESTORE_PROGRESS_AFTER_REFRESH
-        axios
-          .get(
-            `${API}/progress/?student_id=${parsedStudent.student_id}`
-          )
-          .then((response) => {
-            setProgress(response.data);
-          })
-          .catch((error) => {
-            console.error(
-              "Could not restore dashboard:",
-              error
-            );
-          });
 
       } catch (error) {
 
@@ -95,9 +77,6 @@ function App() {
 
   const [loading, setLoading] =
     useState(false);
-
-  const [hintLevelUsed, setHintLevelUsed] =
-    useState(0);
 
 
   // ======================================================
@@ -254,8 +233,6 @@ function App() {
 
     setEvaluation(null);
 
-    setHintLevelUsed(0);
-
   };
 
 
@@ -410,8 +387,6 @@ function App() {
     finalScore = null,
     vivaScore = null,
     misconception = "",
-    topicRelated = false,
-    topicMisconception = "",
     status,
     topic = question?.topic || "General",
     hintLevel = 0,
@@ -465,12 +440,6 @@ function App() {
           misconception:
             misconception,
 
-          topic_related:
-            topicRelated,
-
-          topic_misconception:
-            topicMisconception,
-
           status:
             status
 
@@ -523,8 +492,6 @@ function App() {
       setTutor(null);
 
       setEvaluation(null);
-
-      setHintLevelUsed(0);
 
 
       const response =
@@ -617,12 +584,6 @@ function App() {
             misconception:
               diagnosis.misconception,
 
-            topic_related:
-              diagnosis.topic_related || false,
-
-            error_category:
-              diagnosis.error_category || "other",
-
             passed_code:
               false
 
@@ -634,8 +595,6 @@ function App() {
       setTutor(
         tutorResponse.data
       );
-
-      setHintLevelUsed(1);
 
 
     } catch (error) {
@@ -676,7 +635,7 @@ function App() {
       const hintLevel =
         analysis?.test_score === 100
           ? 0
-          : hintLevelUsed;
+          : 1;
 
 
       const response =
@@ -739,14 +698,6 @@ function App() {
             analysis.diagnosis
               .misconception || "",
 
-          topicRelated:
-            analysis.diagnosis
-              .topic_related || false,
-
-          topicMisconception:
-            analysis.diagnosis
-              .topic_misconception || "",
-
           status:
             response.data.evaluation.status,
 
@@ -780,9 +731,6 @@ function App() {
         topic_mastery:
           topicProgress?.mastery_score ??
           response.data.topic_evidence_score,
-
-        topic_progress:
-          topicProgress || null,
 
         evaluation: {
           ...response.data.evaluation,
@@ -839,125 +787,10 @@ function App() {
   setCorrectedCode("");
   setVivaAnswer("");
   setEvaluation(null);
-  setHintLevelUsed(0);
 };
 
 
   const mastered = false;
-
-
-  // ======================================================
-  // SCORE EXPLANATIONS
-  // ======================================================
-
-  const getRetestReason = () => {
-
-    const score = Number(
-      evaluation?.retest_score ?? 0
-    );
-
-    if (score === 100) {
-      return "Your corrected/final code passed all hidden test cases.";
-    }
-
-    return `Your corrected/final code passed ${score}% of the hidden-test evaluation.`;
-  };
-
-
-  const getConceptReason = () => {
-
-    const score = Number(
-      evaluation?.evaluation?.score ?? 0
-    );
-
-    if (score >= 90) {
-      return "Your viva answer showed clear and complete understanding of the concept.";
-    }
-
-    if (score >= 75) {
-      return "Your viva answer was mostly correct, but some concept details were incomplete.";
-    }
-
-    if (score >= 50) {
-      return "Your viva answer showed partial understanding, so more conceptual verification is needed.";
-    }
-
-    return "Your viva answer missed or contradicted important parts of the concept.";
-  };
-
-
-  const getTopicMasteryReason = () => {
-
-    const mastery = Number(
-      evaluation?.topic_mastery ?? 0
-    );
-
-    const status =
-      evaluation?.evaluation?.status || "";
-
-    const initial = Number(
-      analysis?.test_score ?? 0
-    );
-
-    const retest = Number(
-      evaluation?.retest_score ?? 0
-    );
-
-    const viva = Number(
-      evaluation?.evaluation?.score ?? 0
-    );
-
-    if (
-      mastery >= 80 &&
-      status === "Mastered"
-    ) {
-      return (
-        `Mastery combines first-attempt coding (${initial}%), ` +
-        `retest (${retest}%), viva (${viva}%), hint independence, ` +
-        "and independent verification. The verification requirement has been passed."
-      );
-    }
-
-    if (
-      mastery >= 79 &&
-      status.includes("Verification")
-    ) {
-      return (
-        `Your latest code (${retest}%) and viva (${viva}%) are strong, ` +
-        "but independent verification is still required. " +
-        "LabTwin keeps an unverified topic below 80% until you prove it again independently."
-      );
-    }
-
-    return (
-      `This score combines first-attempt coding (${initial}%), ` +
-      `retest (${retest}%), viva (${viva}%), hints used, ` +
-      "previous evidence, and verification status. Earlier mistakes or hint use can keep mastery lower."
-    );
-  };
-
-
-  const getReadinessReason = () => {
-
-    const masteryAverage = Number(
-      progress?.topic_mastery_average ?? 0
-    );
-
-    const coverage = Number(
-      progress?.syllabus_coverage ?? 0
-    );
-
-    const readiness = (
-      (0.60 * masteryAverage) +
-      (0.40 * coverage)
-    ).toFixed(1);
-
-    return (
-      `Overall readiness = 60% of tested-topic mastery (${masteryAverage}%) ` +
-      `+ 40% of syllabus coverage (${coverage}%) = ${readiness}%. ` +
-      "So even strong performance on one topic cannot produce high overall readiness until more syllabus topics are tested."
-    );
-  };
 
 
   // ======================================================
@@ -988,40 +821,69 @@ function App() {
 
       {!student ? (
 
-        <StudentStart
-          onStudentStarted={async (studentData) => {
+        <div className="card">
 
-            setStudent(
-              studentData
-            );
+          <h2>
+            Start Learning Session
+          </h2>
 
-            setStudentName("");
-            setFile(null);
-            setSyllabus(null);
-            setQuestion(null);
-            setCode("");
-            setAnalysis(null);
-            setTutor(null);
-            setCorrectedCode("");
-            setVivaAnswer("");
-            setEvaluation(null);
-            setProgress(null);
-            setHintLevelUsed(0);
 
-            await loadProgress(
-              studentData.student_id
-            );
+          <p>
+            Enter your name to create your
+            personalized LabTwin profile.
+          </p>
 
-          }}
-        />
+
+          <input
+
+            type="text"
+
+            value={
+              studentName
+            }
+
+            onChange={(e) =>
+              setStudentName(
+                e.target.value
+              )
+            }
+
+            placeholder={
+              "Student name"
+            }
+
+          />
+
+
+          <br />
+          <br />
+
+
+          <button
+            onClick={
+              startStudent
+            }
+            disabled={
+              loading
+            }
+          >
+
+            Start Session
+
+          </button>
+
+        </div>
 
       ) : (
 
         <div className="card">
 
           <h2>
-            Welcome, {student.name}
+            Welcome, {
+              student.name
+            }
           </h2>
+
 
           <button
             onClick={
@@ -1034,6 +896,7 @@ function App() {
         </div>
 
       )}
+
 
       {/* ================================================= */}
       {/* DASHBOARD */}
@@ -1479,18 +1342,9 @@ function App() {
           </h3>
 
 
-          <p
-            style={{
-              whiteSpace: "pre-wrap"
-            }}
-          >
+          <p>
             {
-              String(
-                question.problem || ""
-              ).replace(
-                /\\n/g,
-                "\n"
-              )
+              question.problem
             }
           </p>
 
@@ -1635,22 +1489,6 @@ function App() {
             }
 
           </p>
-
-          {analysis.diagnosis.has_misconception && (
-            <>
-              <h3>Error Classification</h3>
-              <p>
-                {analysis.diagnosis.error_category || "other"}
-              </p>
-
-              <h3>Evidence About This Topic</h3>
-              <p>
-                {analysis.diagnosis.topic_related
-                  ? `Topic-related misconception: ${analysis.diagnosis.topic_misconception || analysis.diagnosis.misconception}`
-                  : `This coding error is not evidence of a weakness in ${question?.topic}.`}
-              </p>
-            </>
-          )}
 
 
           <h3>
@@ -1811,29 +1649,16 @@ function App() {
 
             <>
 
-              <ProgressiveHints
-                problem={
-                  question?.problem || ""
-                }
-                conceptKey={
-                  analysis?.diagnosis?.concept_key ||
-                  question?.concept_key ||
-                  "OTHER"
-                }
-                misconception={
-                  analysis?.diagnosis?.misconception ||
-                  ""
-                }
-                firstHint={
+              <h3>
+                Progressive Hint
+              </h3>
+
+
+              <p>
+                {
                   tutor.hint
                 }
-                initialLevel={
-                  1
-                }
-                onLevelChange={
-                  setHintLevelUsed
-                }
-              />
+              </p>
 
 
               <h3>
@@ -2036,209 +1861,6 @@ function App() {
 
 
           </div>
-
-
-          <div
-            className="adaptiveBox"
-            style={{
-              marginTop: "20px"
-            }}
-          >
-
-            <h3>
-              Why these scores?
-            </h3>
-
-            <p>
-              <strong>Retest Score: </strong>
-              {getRetestReason()}
-            </p>
-
-            <p>
-              <strong>Concept Understanding: </strong>
-              {getConceptReason()}
-            </p>
-
-            <p>
-              <strong>Current Topic Mastery: </strong>
-              {getTopicMasteryReason()}
-            </p>
-
-            <p>
-              <strong>Overall Lab Readiness: </strong>
-              {getReadinessReason()}
-            </p>
-
-          </div>
-
-          <MasteryInsight
-
-            topic={
-              question?.topic ||
-              "Current Topic"
-            }
-
-            mastery={
-              Number(
-                evaluation?.topic_mastery ??
-                0
-              )
-            }
-
-            status={
-              evaluation?.evaluation?.status ||
-              "Needs Verification"
-            }
-
-            firstAttemptScore={
-              Number(
-                analysis?.test_score ??
-                0
-              )
-            }
-
-            codeScore={
-              Number(
-                evaluation?.retest_score ??
-                0
-              )
-            }
-
-            vivaScore={
-              Number(
-                evaluation?.evaluation?.score ??
-                0
-              )
-            }
-
-            verificationPassed={
-              Boolean(
-                evaluation
-                  ?.topic_progress
-                  ?.verification_passed
-              )
-            }
-
-            coreCorrectness={
-              evaluation
-                ?.evaluation
-                ?.dimensions
-                ?.core_correctness
-                ?.rating != null
-
-                ? Number(
-                    evaluation
-                      .evaluation
-                      .dimensions
-                      .core_correctness
-                      .rating
-                  ) * 25
-
-                : null
-            }
-
-            mechanism={
-              evaluation
-                ?.evaluation
-                ?.dimensions
-                ?.mechanism
-                ?.rating != null
-
-                ? Number(
-                    evaluation
-                      .evaluation
-                      .dimensions
-                      .mechanism
-                      .rating
-                  ) * 25
-
-                : null
-            }
-
-            application={
-              evaluation
-                ?.evaluation
-                ?.dimensions
-                ?.application
-                ?.rating != null
-
-                ? Number(
-                    evaluation
-                      .evaluation
-                      .dimensions
-                      .application
-                      .rating
-                  ) * 25
-
-                : null
-            }
-
-            coverage={
-              evaluation
-                ?.evaluation
-                ?.dimensions
-                ?.question_coverage
-                ?.rating != null
-
-                ? Number(
-                    evaluation
-                      .evaluation
-                      .dimensions
-                      .question_coverage
-                      .rating
-                  ) * 25
-
-                : null
-            }
-
-            hintLevel={
-              Number(
-                evaluation?.hint_level ??
-                hintLevelUsed ??
-                0
-              )
-            }
-
-            attempts={
-              Number(
-                evaluation
-                  ?.topic_progress
-                  ?.attempts ??
-                0
-              )
-            }
-
-            misconception={
-              evaluation
-                ?.topic_progress
-                ?.last_misconception ||
-
-              analysis
-                ?.diagnosis
-                ?.topic_misconception ||
-
-              ""
-            }
-
-            recurringMisconception={
-              Number(
-                evaluation
-                  ?.topic_progress
-                  ?.misconception_count ??
-                0
-              ) > 1
-            }
-
-            labReadiness={
-              Number(
-                evaluation?.lab_readiness ??
-                progress?.lab_readiness ??
-                0
-              )
-            }
-
-          />
-
 
 
           <h3>

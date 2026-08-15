@@ -1,12 +1,4 @@
 .env
-.env.local
 venv/
-.venv/
-node_modules/
-dist/
-build/
 __pycache__/
-*.pyc
-db.sqlite3
-.vscode/
-.idea/
+.ipynb_checkpoints/
