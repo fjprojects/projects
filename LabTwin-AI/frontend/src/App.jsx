@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import "./App.css";
-import StudentStart from "./StudentStart";
 import ProgressiveHints from "./ProgressiveHints";
 import MasteryInsight from "./components/MasteryInsight";
 
@@ -109,7 +108,7 @@ function App() {
   // START STUDENT
   // ======================================================
 
-  const startStudent = async () => {
+  const startStudent = async (mode = "new") => {
 
     if (!studentName.trim()) {
 
@@ -132,8 +131,8 @@ function App() {
           `${API}/start-student/`,
 
           {
-            name:
-              studentName
+            name: studentName,
+            mode
           }
 
         );
@@ -180,8 +179,10 @@ function App() {
       );
 
       alert(
-        "Could not start student session."
-      );
+          error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          "Could not start student session."
+        );
 
     } finally {
 
@@ -988,32 +989,74 @@ function App() {
 
       {!student ? (
 
-        <StudentStart
-          onStudentStarted={async (studentData) => {
+        <div className="card">
 
-            setStudent(
-              studentData
-            );
+          <h2>
+            Start Learning Session
+          </h2>
 
-            setStudentName("");
-            setFile(null);
-            setSyllabus(null);
-            setQuestion(null);
-            setCode("");
-            setAnalysis(null);
-            setTutor(null);
-            setCorrectedCode("");
-            setVivaAnswer("");
-            setEvaluation(null);
-            setProgress(null);
-            setHintLevelUsed(0);
+          <p>
+            Enter your name to start a new session
+            or continue your previous LabTwin progress.
+          </p>
 
-            await loadProgress(
-              studentData.student_id
-            );
+          <input
+            type="text"
+            value={studentName}
+            placeholder="Student name"
+            onChange={(event) =>
+              setStudentName(
+                event.target.value
+              )
+            }
+            onKeyDown={(event) => {
 
-          }}
-        />
+              if (
+                event.key === "Enter" &&
+                studentName.trim()
+              ) {
+                startStudent("new");
+              }
+
+            }}
+          />
+
+          <div
+            style={{
+              display: "flex",
+              gap: "12px",
+              flexWrap: "wrap",
+              marginTop: "14px"
+            }}
+          >
+
+            <button
+              type="button"
+              disabled={
+                !studentName.trim()
+              }
+              onClick={() =>
+                startStudent("new")
+              }
+            >
+              Start New Session
+            </button>
+
+            <button
+              type="button"
+              disabled={
+                !studentName.trim()
+              }
+              onClick={() =>
+                startStudent("continue")
+              }
+            >
+              Continue Previous Progress
+            </button>
+
+          </div>
+
+        </div>
 
       ) : (
 
@@ -1024,6 +1067,7 @@ function App() {
           </h2>
 
           <button
+            type="button"
             onClick={
               changeStudent
             }
