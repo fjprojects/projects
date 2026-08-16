@@ -140,6 +140,298 @@ def _hint_independence_score(level):
     )
 
 
+
+def _topic_mastery_breakdown(
+    student,
+    topic,
+):
+    """
+    Return an explainable breakdown using exactly the
+    same evidence and weights as topic mastery.
+
+    This does not change the mastery calculation.
+    It only exposes its components for the UI.
+    """
+
+    attempts = _unique_attempt_records(
+        Attempt.objects.filter(
+            student=student,
+            topic=topic,
+        )
+    )
+
+    if not attempts:
+        return None
+
+    # Mastery already uses the latest five unique
+    # completed pieces of topic evidence.
+    recent = attempts[-5:]
+
+    initial_average = _weighted_average(
+        [
+            attempt.initial_score
+            for attempt in recent
+        ]
+    )
+
+    final_average = _weighted_average(
+        [
+            (
+                attempt.final_score
+                if attempt.final_score is not None
+                else attempt.initial_score
+            )
+            for attempt in recent
+        ]
+    )
+
+    viva_values = [
+        attempt.viva_score
+        for attempt in recent
+        if attempt.viva_score is not None
+    ]
+
+    viva_average = _weighted_average(
+        viva_values
+    )
+
+    hint_average = _weighted_average(
+        [
+            attempt.hint_level
+            for attempt in recent
+        ]
+    )
+
+    independence_average = _weighted_average(
+        [
+            _hint_independence_score(
+                attempt.hint_level
+            )
+            for attempt in recent
+        ]
+    )
+
+    verification_passed = any(
+        attempt.verification
+        and attempt.initial_score >= 80
+        and (
+            attempt.final_score is None
+            or attempt.final_score >= 80
+        )
+        and attempt.viva_score is not None
+        and attempt.viva_score >= 75
+        and attempt.hint_level <= 1
+        for attempt in attempts
+    )
+
+    verification_score = (
+        100
+        if verification_passed
+        else 0
+    )
+
+    initial_contribution = (
+        0.35 * initial_average
+    )
+
+    viva_contribution = (
+        0.25 * viva_average
+    )
+
+    final_contribution = (
+        0.15 * final_average
+    )
+
+    verification_contribution = (
+        0.15 * verification_score
+    )
+
+    independence_contribution = (
+        0.10 * independence_average
+    )
+
+    raw_mastery = (
+        initial_contribution
+        + viva_contribution
+        + final_contribution
+        + verification_contribution
+        + independence_contribution
+    )
+
+    final_mastery = raw_mastery
+
+    cap_reasons = []
+
+    if not viva_values:
+        final_mastery = min(
+            final_mastery,
+            69.0,
+        )
+
+        cap_reasons.append(
+            "No viva evidence yet, so mastery cannot exceed 69%."
+        )
+
+    if not verification_passed:
+        final_mastery = min(
+            final_mastery,
+            79.0,
+        )
+
+        cap_reasons.append(
+            "Independent verification has not been passed, so mastery cannot exceed 79%."
+        )
+
+    final_mastery = round(
+        max(
+            0,
+            min(
+                100,
+                final_mastery,
+            ),
+        ),
+        1,
+    )
+
+    if not verification_passed:
+        main_limiter = (
+            "Independent verification has not yet been passed."
+        )
+
+    elif not viva_values:
+        main_limiter = (
+            "More conceptual viva evidence is required."
+        )
+
+    else:
+        evidence_scores = {
+            "First-attempt coding":
+                initial_average,
+            "Concept understanding":
+                viva_average,
+            "Final corrected code":
+                final_average,
+            "Hint independence":
+                independence_average,
+        }
+
+        weakest_evidence = min(
+            evidence_scores,
+            key=evidence_scores.get,
+        )
+
+        main_limiter = (
+            f"The weakest current evidence is {weakest_evidence.lower()}."
+        )
+
+    return {
+        "evidence_attempts":
+            len(recent),
+
+        "scores": {
+            "initial":
+                round(
+                    initial_average,
+                    1,
+                ),
+
+            "viva":
+                round(
+                    viva_average,
+                    1,
+                ),
+
+            "final":
+                round(
+                    final_average,
+                    1,
+                ),
+
+            "verification":
+                verification_score,
+
+            "hint_independence":
+                round(
+                    independence_average,
+                    1,
+                ),
+
+            "average_hint_level":
+                round(
+                    hint_average,
+                    1,
+                ),
+        },
+
+        "weights": {
+            "initial":
+                35,
+
+            "viva":
+                25,
+
+            "final":
+                15,
+
+            "verification":
+                15,
+
+            "hint_independence":
+                10,
+        },
+
+        "contributions": {
+            "initial":
+                round(
+                    initial_contribution,
+                    1,
+                ),
+
+            "viva":
+                round(
+                    viva_contribution,
+                    1,
+                ),
+
+            "final":
+                round(
+                    final_contribution,
+                    1,
+                ),
+
+            "verification":
+                round(
+                    verification_contribution,
+                    1,
+                ),
+
+            "hint_independence":
+                round(
+                    independence_contribution,
+                    1,
+                ),
+        },
+
+        "verification_passed":
+            verification_passed,
+
+        "raw_mastery":
+            round(
+                raw_mastery,
+                1,
+            ),
+
+        "final_mastery":
+            final_mastery,
+
+        "cap_reasons":
+            cap_reasons,
+
+        "main_limiter":
+            main_limiter,
+    }
+
+
 def recalculate_topic_progress(student, topic):
     """
     Rebuild exact-topic mastery from recent unique evidence.
@@ -411,17 +703,178 @@ def _update_broad_concept_progress(
 
     progress.save()
 
+
+def _current_syllabus_topics_for_student(
+    student_id,
+):
+    """
+    Return the exact topic list belonging to the
+    student's CURRENT syllabus.
+
+    None means:
+        no syllabus session could be resolved.
+
+    [] means:
+        syllabus exists but contains no topic list.
+    """
+
+    try:
+        from .views import (
+            load_student_snapshot,
+            load_state,
+        )
+
+        state = (
+            load_student_snapshot(
+                student_id
+            )
+            or load_state()
+        )
+
+        if not isinstance(
+            state,
+            dict,
+        ):
+            return None
+
+        state_student_id = (
+            state.get(
+                "student_id"
+            )
+        )
+
+        if (
+            state_student_id
+            and
+            str(
+                state_student_id
+            )
+            != str(
+                student_id
+            )
+        ):
+            return None
+
+        has_syllabus = bool(
+            state.get(
+                "syllabus_text"
+            )
+            or
+            state.get(
+                "filename"
+            )
+        )
+
+        if not has_syllabus:
+            return None
+
+        topics = []
+
+        seen = set()
+
+        for raw_topic in state.get(
+            "topics",
+            [],
+        ):
+
+            topic = str(
+                raw_topic
+            ).strip()
+
+            if not topic:
+                continue
+
+            key = topic.casefold()
+
+            if key in seen:
+                continue
+
+            seen.add(
+                key
+            )
+
+            topics.append(
+                topic
+            )
+
+        return topics
+
+    except Exception as error:
+
+        print(
+            "CURRENT SYLLABUS TOPIC LOOKUP ERROR:",
+            error,
+        )
+
+        return None
+
+
 def _dashboard_payload(student):
-    attempts = Attempt.objects.filter(
-        student=student
+
+    # CURRENT-SYLLABUS-SCOPED-DASHBOARD
+    #
+    # Old Java progress must not influence a C syllabus,
+    # and C progress must not influence another syllabus.
+
+    allowed_topics = (
+        _current_syllabus_topics_for_student(
+            student.id
+        )
     )
 
-    topic_rows = TopicProgress.objects.filter(
-        student=student
-    ).order_by(
-        "mastery_score",
-        "-updated_at",
-    )
+
+    if allowed_topics is not None:
+
+        if allowed_topics:
+
+            attempts = (
+                Attempt.objects.filter(
+                    student=student,
+                    topic__in=allowed_topics,
+                )
+            )
+
+            topic_rows = (
+                TopicProgress.objects.filter(
+                    student=student,
+                    topic__in=allowed_topics,
+                )
+                .order_by(
+                    "mastery_score",
+                    "-updated_at",
+                )
+            )
+
+        else:
+
+            attempts = (
+                Attempt.objects.none()
+            )
+
+            topic_rows = (
+                TopicProgress.objects.none()
+            )
+
+
+    else:
+
+        # Legacy fallback only when no syllabus session exists.
+        attempts = (
+            Attempt.objects.filter(
+                student=student
+            )
+        )
+
+        topic_rows = (
+            TopicProgress.objects.filter(
+                student=student
+            )
+            .order_by(
+                "mastery_score",
+                "-updated_at",
+            )
+        )
+
 
     unique_attempts = _unique_attempt_records(
         attempts
@@ -472,19 +925,41 @@ def _dashboard_payload(student):
         else 0
     )
 
-    # Use the uploaded syllabus to measure coverage.
+    # Use THIS student's own uploaded syllabus
+    # to calculate coverage.
     try:
-        from .views import load_state
+        from .views import (
+            load_student_snapshot,
+            load_state,
+        )
 
-        state = load_state()
+        state = (
+            load_student_snapshot(
+                student.id
+            )
+            or load_state()
+        )
+
+        if str(
+            state.get(
+                "student_id"
+            )
+        ) != str(
+            student.id
+        ):
+            state = {}
 
         syllabus_topics = [
-            str(topic).strip()
+            str(
+                topic
+            ).strip()
             for topic in state.get(
                 "topics",
                 []
             )
-            if str(topic).strip()
+            if str(
+                topic
+            ).strip()
         ]
 
     except Exception:
@@ -571,7 +1046,12 @@ def _dashboard_payload(student):
                     )["last"],
                 "average_hint_level":
                     row.average_hint_level,
-            }
+            "mastery_breakdown":
+                    _topic_mastery_breakdown(
+                        student,
+                        row.topic,
+                    ),
+                }
             break
 
     topics = [
@@ -605,7 +1085,12 @@ def _dashboard_payload(student):
                 )["last"],
             "average_hint_level":
                 row.average_hint_level,
-        }
+        "mastery_breakdown":
+                    _topic_mastery_breakdown(
+                        student,
+                        row.topic,
+                    ),
+                }
         for row in topic_rows
     ]
 
@@ -707,7 +1192,10 @@ def start_student(request):
 
     if request.method != "POST":
         return JsonResponse(
-            {"error": "POST required"},
+            {
+                "error":
+                    "POST required"
+            },
             status=405,
         )
 
@@ -735,21 +1223,49 @@ def start_student(request):
                 status=400,
             )
 
+
+        # Import inside the request handler to avoid
+        # module circular-import problems.
+        from .views import (
+            activate_student_session,
+            public_student_session,
+        )
+
+
         if mode == "new":
-            student = StudentProfile.objects.create(
-                name=name
+
+            student = (
+                StudentProfile.objects.create(
+                    name=name
+                )
+            )
+
+            state = (
+                activate_student_session(
+                    student.id,
+                    fresh=True,
+                )
             )
 
             return JsonResponse({
                 "student_id":
                     student.id,
+
                 "name":
                     student.name,
+
                 "mode":
                     "new",
+
                 "message":
                     "New learning session created.",
+
+                "session":
+                    public_student_session(
+                        state
+                    ),
             })
+
 
         existing = (
             StudentProfile.objects.filter(
@@ -767,6 +1283,7 @@ def start_student(request):
             .first()
         )
 
+
         if not existing:
             return JsonResponse(
                 {
@@ -776,20 +1293,43 @@ def start_student(request):
                 status=404,
             )
 
+
+        state = (
+            activate_student_session(
+                existing.id,
+                fresh=False,
+            )
+        )
+
+
         return JsonResponse({
             "student_id":
                 existing.id,
+
             "name":
                 existing.name,
+
             "mode":
                 "continue",
+
             "message":
-                "Previous progress loaded.",
+                "Previous progress and learning session restored.",
+
+            "session":
+                public_student_session(
+                    state
+                ),
         })
+
 
     except Exception as error:
         return JsonResponse(
-            {"error": str(error)},
+            {
+                "error":
+                    str(
+                        error
+                    )
+            },
             status=500,
         )
 

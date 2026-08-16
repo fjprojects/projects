@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
+import ReactMarkdown from "react-markdown";
 import "./App.css";
+import LearningIntelligence from "./components/LearningIntelligence";
 import ProgressiveHints from "./ProgressiveHints";
 import MasteryInsight from "./components/MasteryInsight";
 
@@ -12,39 +14,129 @@ function App() {
   useEffect(() => {
 
     const savedStudent =
-      sessionStorage.getItem("labtwin_student");
+      sessionStorage.getItem(
+        "labtwin_student"
+      );
 
-    if (savedStudent) {
+    if (!savedStudent) {
+      return;
+    }
 
-      try {
+    try {
 
-        const parsedStudent =
-          JSON.parse(savedStudent);
+      const parsedStudent =
+        JSON.parse(
+          savedStudent
+        );
 
-        setStudent(parsedStudent);
+      setStudent(
+        parsedStudent
+      );
 
-        // RESTORE_PROGRESS_AFTER_REFRESH
-        axios
-          .get(
-            `${API}/progress/?student_id=${parsedStudent.student_id}`
-          )
-          .then((response) => {
-            setProgress(response.data);
-          })
-          .catch((error) => {
+
+      axios
+        .get(
+          `${API}/progress/?student_id=${parsedStudent.student_id}`
+        )
+        .then(
+          (response) => {
+
+            setProgress(
+              response.data
+            );
+
+          }
+        )
+        .catch(
+          (error) => {
+
             console.error(
               "Could not restore dashboard:",
               error
             );
-          });
 
-      } catch (error) {
-
-        sessionStorage.removeItem(
-          "labtwin_student"
+          }
         );
 
-      }
+
+      axios
+        .get(
+          `${API}/student-session/?student_id=${parsedStudent.student_id}&activate=1`
+        )
+        .then(
+          (response) => {
+
+            const session =
+              response.data
+                ?.session;
+
+            setSessionMeta(
+              session || null
+            );
+
+            if (
+              session
+                ?.has_syllabus
+            ) {
+
+              setSyllabus({
+                filename:
+                  session.filename,
+
+                language:
+                  session.language,
+
+                mode:
+                  session.mode,
+
+                topics:
+                  session.topics || [],
+
+                existing_question_count:
+                  session.existing_question_count || 0,
+
+                restored:
+                  true,
+
+                message:
+                  "Previous syllabus restored."
+              });
+
+            }
+
+
+            if (
+              session
+                ?.current_question
+            ) {
+
+              setQuestion(
+                session
+                  .current_question
+              );
+
+            }
+
+          }
+        )
+        .catch(
+          (error) => {
+
+            console.error(
+              "Could not restore learning session:",
+              error
+            );
+
+          }
+        );
+
+
+    } catch (error) {
+
+      sessionStorage.removeItem(
+        "labtwin_student"
+      );
+
     }
 
   }, []);
@@ -95,6 +187,20 @@ function App() {
   const [loading, setLoading] =
     useState(false);
 
+  // Prevent double-clicks / duplicate automatic requests
+  // from launching two CrewAI question generators.
+  const nextQuestionRequestRef =
+    useRef(false);
+
+  const [sessionMeta, setSessionMeta] =
+    useState(null);
+
+  const [activityMessage, setActivityMessage] =
+    useState("");
+
+  const [draftLoadedKey, setDraftLoadedKey] =
+    useState("");
+
   const [hintLevelUsed, setHintLevelUsed] =
     useState(0);
 
@@ -102,6 +208,200 @@ function App() {
   // ======================================================
   // RESTORE STUDENT
   // ======================================================
+
+
+  // ======================================================
+  // SESSION RESTORE
+  // ======================================================
+
+  const applySessionSnapshot = (
+    session
+  ) => {
+
+    setSessionMeta(
+      session || null
+    );
+
+    if (
+      session
+        ?.has_syllabus
+    ) {
+
+      setSyllabus({
+
+        filename:
+          session.filename,
+
+        language:
+          session.language,
+
+        mode:
+          session.mode,
+
+        topics:
+          session.topics || [],
+
+        existing_question_count:
+          session.existing_question_count || 0,
+
+        restored:
+          true,
+
+        message:
+          "Previous syllabus restored."
+
+      });
+
+    } else {
+
+      setSyllabus(
+        null
+      );
+
+    }
+
+
+    if (
+      session
+        ?.current_question
+    ) {
+
+      setQuestion(
+        session
+          .current_question
+      );
+
+    } else {
+
+      setQuestion(
+        null
+      );
+
+    }
+
+  };
+
+
+  // ======================================================
+  // LOCAL DRAFT RESTORE
+  // ======================================================
+
+  useEffect(() => {
+
+    if (
+      !student?.student_id ||
+      !question?.id
+    ) {
+      return;
+    }
+
+    const key =
+      "labtwin_draft_" +
+      student.student_id +
+      "_" +
+      question.id;
+
+    try {
+
+      const saved =
+        localStorage.getItem(
+          key
+        );
+
+      if (saved) {
+
+        const parsed =
+          JSON.parse(
+            saved
+          );
+
+        setCode(
+          parsed.code || ""
+        );
+
+        setCorrectedCode(
+          parsed.correctedCode || ""
+        );
+
+        setVivaAnswer(
+          parsed.vivaAnswer || ""
+        );
+
+      }
+
+    } catch (error) {
+
+      console.error(
+        "Could not restore draft:",
+        error
+      );
+
+    }
+
+    setDraftLoadedKey(
+      key
+    );
+
+  }, [
+    student?.student_id,
+    question?.id
+  ]);
+
+
+  // ======================================================
+  // LOCAL DRAFT AUTO SAVE
+  // ======================================================
+
+  useEffect(() => {
+
+    if (
+      !student?.student_id ||
+      !question?.id
+    ) {
+      return;
+    }
+
+    const key =
+      "labtwin_draft_" +
+      student.student_id +
+      "_" +
+      question.id;
+
+    if (
+      draftLoadedKey !==
+      key
+    ) {
+      return;
+    }
+
+    try {
+
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          code,
+          correctedCode,
+          vivaAnswer
+        })
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Could not save draft:",
+        error
+      );
+
+    }
+
+  }, [
+    student?.student_id,
+    question?.id,
+    code,
+    correctedCode,
+    vivaAnswer,
+    draftLoadedKey
+  ]);
 
 
   // ======================================================
@@ -154,6 +454,8 @@ function App() {
       setVivaAnswer("");
       setEvaluation(null);
       setProgress(null);
+      setSessionMeta(null);
+      setActivityMessage("");
 
 
       sessionStorage.setItem(
@@ -169,6 +471,10 @@ function App() {
 
       await loadProgress(
         response.data.student_id
+      );
+
+      applySessionSnapshot(
+        response.data.session
       );
 
 
@@ -280,6 +586,10 @@ function App() {
 
       setLoading(true);
 
+      setActivityMessage(
+        "Analyzing your syllabus. If AI capacity is busy, LabTwin will wait and retry automatically."
+      );
+
 
       const formData =
         new FormData();
@@ -309,6 +619,48 @@ function App() {
       setSyllabus(
         response.data
       );
+
+      setSessionMeta(
+        (previous) => ({
+          ...(previous || {}),
+          has_syllabus: true,
+          filename: response.data.filename,
+          language: response.data.language,
+          mode: response.data.mode,
+          topics: response.data.topics || [],
+          existing_question_count:
+            response.data.existing_question_count || 0
+        })
+      );
+
+      setActivityMessage(
+        response.data.cached
+          ? "Saved syllabus analysis reused. No new AI syllabus analysis was required."
+          : "Syllabus analyzed successfully."
+      );
+
+
+      // UNSUPPORTED_SYLLABUS_UI_GUARD
+
+      if (
+        response.data
+          ?.execution_supported
+        === false
+      ) {
+
+        setQuestion(
+          null
+        );
+
+        setActivityMessage(
+          response.data
+            ?.unsupported_reason
+          ||
+          "This syllabus requires a runtime that is not supported by the current automatic code runner."
+        );
+
+        return;
+      }
 
 
       await nextQuestion();
@@ -343,6 +695,21 @@ function App() {
   // ======================================================
 
   const nextQuestion = async () => {
+
+    // Hard guard against duplicate question requests.
+    if (
+      nextQuestionRequestRef.current
+    ) {
+
+      console.log(
+        "Next-question request ignored: one is already running."
+      );
+
+      return;
+    }
+
+    nextQuestionRequestRef.current =
+      true;
 
     try {
 
@@ -395,6 +762,9 @@ function App() {
 
 
     } finally {
+
+      nextQuestionRequestRef.current =
+        false;
 
       setLoading(false);
 
@@ -538,6 +908,9 @@ function App() {
             question_id:
               question.id,
 
+            student_id:
+              student?.student_id,
+
             code:
               code
 
@@ -560,7 +933,8 @@ function App() {
       // ----------------------------------
 
       if (
-        response.data.test_score === 100
+        response.data.test_score === 100 &&
+        response.data.concept_requirement_met !== false
       ) {
 
         const tutorResponse =
@@ -675,7 +1049,8 @@ function App() {
 
 
       const hintLevel =
-        analysis?.test_score === 100
+        (analysis?.test_score === 100 &&
+                analysis?.concept_requirement_met !== false)
           ? 0
           : hintLevelUsed;
 
@@ -689,6 +1064,9 @@ function App() {
 
             question_id:
               question.id,
+
+            student_id:
+              student?.student_id,
 
             concept_key:
               analysis.diagnosis
@@ -840,6 +1218,9 @@ function App() {
   setCorrectedCode("");
   setVivaAnswer("");
   setEvaluation(null);
+  setSessionMeta(null);
+  setActivityMessage("");
+  setDraftLoadedKey("");
   setHintLevelUsed(0);
 };
 
@@ -858,10 +1239,10 @@ function App() {
     );
 
     if (score === 100) {
-      return "Your corrected/final code passed all hidden test cases.";
+      return "Your final code passed all hidden test cases.";
     }
 
-    return `Your corrected/final code passed ${score}% of the hidden-test evaluation.`;
+    return `Your final code passed ${score}% of the hidden-test evaluation.`;
   };
 
 
@@ -914,7 +1295,7 @@ function App() {
     ) {
       return (
         `Mastery combines first-attempt coding (${initial}%), ` +
-        `retest (${retest}%), viva (${viva}%), hint independence, ` +
+        `final code (${retest}%), viva (${viva}%), hint independence, ` +
         "and independent verification. The verification requirement has been passed."
       );
     }
@@ -932,7 +1313,7 @@ function App() {
 
     return (
       `This score combines first-attempt coding (${initial}%), ` +
-      `retest (${retest}%), viva (${viva}%), hints used, ` +
+      `final code (${retest}%), viva (${viva}%), hints used, ` +
       "previous evidence, and verification status. Earlier mistakes or hint use can keep mastery lower."
     );
   };
@@ -948,15 +1329,20 @@ function App() {
       progress?.syllabus_coverage ?? 0
     );
 
-    const readiness = (
-      (0.60 * masteryAverage) +
-      (0.40 * coverage)
-    ).toFixed(1);
+    const readiness = Number(
+      progress?.lab_readiness ??
+      (
+        (0.60 * masteryAverage) +
+        (0.40 * coverage)
+      )
+    );
 
     return (
-      `Overall readiness = 60% of tested-topic mastery (${masteryAverage}%) ` +
-      `+ 40% of syllabus coverage (${coverage}%) = ${readiness}%. ` +
-      "So even strong performance on one topic cannot produce high overall readiness until more syllabus topics are tested."
+      `Overall readiness uses 60% tested-topic mastery and ` +
+      `40% syllabus coverage. Current readiness is ` +
+      `${readiness.toFixed(1)}%. ` +
+      `LabTwin calculates this using the underlying unrounded ` +
+      `values; the percentages shown on screen are rounded for readability.`
     );
   };
 
@@ -981,6 +1367,25 @@ function App() {
         </p>
 
       </div>
+
+
+      {activityMessage && (
+
+        <div
+          className={`labTwinSystemNotice ${loading ? "busy" : ""}`}
+        >
+
+          {loading && (
+            <span className="labTwinSpinner" />
+          )}
+
+          <span>
+            {activityMessage}
+          </span>
+
+        </div>
+
+      )}
 
 
       {/* ================================================= */}
@@ -1176,50 +1581,294 @@ function App() {
           {progress.weakest_topic && (
 
             <div
-              className="adaptiveBox"
+              className="adaptiveBox learningPriorityBox"
               style={{
                 marginTop: "20px"
               }}
             >
 
-              <h3>
-                Current Learning Priority
-              </h3>
+              <div className="priorityHeader">
+
+                <div>
+
+                  <div className="priorityEyebrow">
+                    CURRENT LEARNING PRIORITY
+                  </div>
+
+                  <h3 className="priorityTopic">
+                    {
+                      progress
+                        .weakest_topic
+                        .topic
+                    }
+                  </h3>
+
+                </div>
+
+                <div className="priorityMasteryCircle">
+
+                  <strong>
+                    {
+                      progress
+                        .weakest_topic
+                        .mastery_score
+                    }%
+                  </strong>
+
+                  <span>
+                    Mastery
+                  </span>
+
+                </div>
+
+              </div>
 
 
-              <p>
+              <div className="priorityMetric">
 
-                <strong>
-                  {
-                    progress
-                      .weakest_topic
-                      .topic
-                  }
-                </strong>
+                <div className="priorityMetricTop">
 
-              </p>
+                  <div>
 
+                    <strong>
+                      Topic Mastery
+                    </strong>
 
-              <p>
-                Topic mastery:{" "}
-                {
-                  progress
-                    .weakest_topic
-                    .mastery_score
-                }%
-              </p>
+                    <span className="metricInfo">
+                      How well you can understand and
+                      solve this topic independently.
+                    </span>
+
+                  </div>
 
 
-              <p>
-                Status:{" "}
-                <strong>
-                  {
-                    progress
-                      .weakest_topic
-                      .status
-                  }
-                </strong>
-              </p>
+                  <strong className="metricValue">
+
+                    {
+                      progress
+                        .weakest_topic
+                        .mastery_score
+                    }%
+
+                    {" â€” "}
+
+                    {
+                      Number(
+                        progress
+                          .weakest_topic
+                          .mastery_score
+                      ) >= 80
+
+                        ? "Mastered"
+
+                        : Number(
+                            progress
+                              .weakest_topic
+                              .mastery_score
+                          ) >= 60
+
+                          ? "Nearly Mastered"
+
+                          : Number(
+                              progress
+                                .weakest_topic
+                                .mastery_score
+                            ) >= 40
+
+                            ? "Developing"
+
+                            : "Beginning"
+                    }
+
+                  </strong>
+
+                </div>
+
+
+                <div className="masteryScale">
+
+                  <div
+                    className="masteryScaleFill"
+                    style={{
+                      width:
+                        `${Math.min(
+                          100,
+                          Math.max(
+                            0,
+                            Number(
+                              progress
+                                .weakest_topic
+                                .mastery_score
+                            ) || 0
+                          )
+                        )}%`
+                    }}
+                  />
+
+                </div>
+
+
+                <div className="scaleLabels">
+                  <span>Beginning</span>
+                  <span>Developing</span>
+                  <span>Nearly Mastered</span>
+                  <span>Mastered</span>
+                </div>
+
+              </div>
+
+
+              <div className="priorityInfoGrid">
+
+
+                <div className="priorityInfoCard">
+
+                  <span className="priorityInfoLabel">
+                    WHAT IS MISSING?
+                  </span>
+
+                  <strong>
+
+                    {
+                      progress
+                        .weakest_topic
+                        .status === "Mastered"
+
+                        ? "Nothing â€” Mastery Confirmed"
+
+                        : progress
+                            .weakest_topic
+                            .status === "Needs Coding Practice"
+
+                          ? "Better Coding Accuracy Needed"
+
+                          : progress
+                              .weakest_topic
+                              .status === "Needs Practice"
+
+                            ? "Stronger Understanding Needed"
+
+                            : progress
+                                .weakest_topic
+                                .status === "Needs Verification"
+
+                              ? "Independent Proof Needed"
+
+                              : "More Practice Needed"
+                    }
+
+                  </strong>
+
+
+                  <p>
+
+                    {
+                      progress
+                        .weakest_topic
+                        .status === "Mastered"
+
+                        ? "You have shown enough coding, concept and independent evidence for this topic."
+
+                        : progress
+                            .weakest_topic
+                            .status === "Needs Coding Practice"
+
+                          ? "Your latest coding performance needs improvement before LabTwin can confirm this topic."
+
+                          : progress
+                              .weakest_topic
+                              .status === "Needs Practice"
+
+                            ? "Your concept understanding needs to become stronger before mastery can be confirmed."
+
+                            : progress
+                                .weakest_topic
+                                .status === "Needs Verification"
+
+                              ? "Complete another strong question on this exact topic with little or no help."
+
+                              : "Keep practising this topic to build stronger mastery evidence."
+                    }
+
+                  </p>
+
+
+                  <small className="technicalStatus">
+
+                    LabTwin status:{" "}
+
+                    {
+                      progress
+                        .weakest_topic
+                        .status
+                    }
+
+                  </small>
+
+                </div>
+
+
+                <div className="priorityInfoCard">
+
+                  <span className="priorityInfoLabel">
+                    HINT RELIANCE
+                  </span>
+
+                  <strong>
+
+                    {
+                      Number(
+                        progress
+                          .weakest_topic
+                          .average_hint_level
+                      ) <= 0.5
+
+                        ? "Very Low"
+
+                        : Number(
+                            progress
+                              .weakest_topic
+                              .average_hint_level
+                          ) <= 1
+
+                          ? "Low"
+
+                          : Number(
+                              progress
+                                .weakest_topic
+                                .average_hint_level
+                            ) <= 2
+
+                            ? "Moderate"
+
+                            : "High"
+                    }
+
+                  </strong>
+
+
+                  <p>
+
+                    Average hint level:{" "}
+
+                    <strong>
+                      {
+                        progress
+                          .weakest_topic
+                          .average_hint_level
+                      } / 3
+                    </strong>
+
+                  </p>
+
+                  <small>
+                    Lower is better. 0 means no hints;
+                    3 means maximum hint help.
+                  </small>
+
+                </div>
+
+              </div>
 
 
               {
@@ -1228,9 +1877,19 @@ function App() {
                   .verification_required
                 && (
 
-                  <p>
-                    Next action: solve another independent question on this exact topic.
-                  </p>
+                  <div className="nextActionBox">
+
+                    <strong>
+                      What should I do next?
+                    </strong>
+
+                    <p>
+                      Solve another different question
+                      on this exact topic with as little
+                      help as possible.
+                    </p>
+
+                  </div>
 
                 )
               }
@@ -1242,27 +1901,559 @@ function App() {
                   .last_misconception
                 && (
 
-                  <p>
-                    Recurring weakness:{" "}
-                    {
-                      progress
-                        .weakest_topic
-                        .last_misconception
-                    }
-                  </p>
+                  <div className="weaknessBox">
+
+                    <strong>
+                      What LabTwin noticed
+                    </strong>
+
+                    <p>
+                      {
+                        progress
+                          .weakest_topic
+                          .last_misconception
+                      }
+                    </p>
+
+                  </div>
 
                 )
               }
 
 
-              <p>
-                Hint dependency:{" "}
-                {
-                  progress
-                    .weakest_topic
-                    .average_hint_level
-                }
-              </p>
+              <details className="scoreExplanation">
+
+                <summary>
+                  Why is my mastery {
+                    progress
+                      .weakest_topic
+                      .mastery_score
+                  }%?
+                </summary>
+
+
+                <div className="scoreExplanationBody">
+
+                  <p>
+                    Topic Mastery is not just your final
+                    code score. LabTwin combines several
+                    kinds of evidence.
+                  </p>
+
+
+                  {
+                    progress
+                      .weakest_topic
+                      .mastery_breakdown
+                    && (
+
+                      <div className="actualEvidencePanel">
+
+                        <div className="actualEvidenceHeader">
+
+                          <div>
+
+                            <span className="actualEvidenceEyebrow">
+                              YOUR ACTUAL MASTERY EVIDENCE
+                            </span>
+
+                            <h4>
+                              Where your {
+                                progress
+                                  .weakest_topic
+                                  .mastery_score
+                              }% came from
+                            </h4>
+
+                          </div>
+
+                          <span className="evidenceAttempts">
+
+                            Based on {
+                              progress
+                                .weakest_topic
+                                .mastery_breakdown
+                                .evidence_attempts
+                            } recent {
+                              progress
+                                .weakest_topic
+                                .mastery_breakdown
+                                .evidence_attempts === 1
+                                ? "attempt"
+                                : "attempts"
+                            }
+
+                          </span>
+
+                        </div>
+
+
+                        <div className="actualEvidenceRow">
+
+                          <div>
+
+                            <strong>
+                              First-attempt coding
+                            </strong>
+
+                            <small>
+                              Your average: {
+                                progress
+                                  .weakest_topic
+                                  .mastery_breakdown
+                                  .scores
+                                  .initial
+                              }%
+                            </small>
+
+                          </div>
+
+                          <div className="contributionScore">
+
+                            <strong>
+                              {
+                                progress
+                                  .weakest_topic
+                                  .mastery_breakdown
+                                  .contributions
+                                  .initial
+                              }
+                            </strong>
+
+                            <span>
+                              / 35
+                            </span>
+
+                          </div>
+
+                        </div>
+
+
+                        <div className="actualEvidenceRow">
+
+                          <div>
+
+                            <strong>
+                              Concept understanding / viva
+                            </strong>
+
+                            <small>
+                              Your average: {
+                                progress
+                                  .weakest_topic
+                                  .mastery_breakdown
+                                  .scores
+                                  .viva
+                              }%
+                            </small>
+
+                          </div>
+
+                          <div className="contributionScore">
+
+                            <strong>
+                              {
+                                progress
+                                  .weakest_topic
+                                  .mastery_breakdown
+                                  .contributions
+                                  .viva
+                              }
+                            </strong>
+
+                            <span>
+                              / 25
+                            </span>
+
+                          </div>
+
+                        </div>
+
+
+                        <div className="actualEvidenceRow">
+
+                          <div>
+
+                            <strong>
+                              Final corrected code
+                            </strong>
+
+                            <small>
+                              Your average: {
+                                progress
+                                  .weakest_topic
+                                  .mastery_breakdown
+                                  .scores
+                                  .final
+                              }%
+                            </small>
+
+                          </div>
+
+                          <div className="contributionScore">
+
+                            <strong>
+                              {
+                                progress
+                                  .weakest_topic
+                                  .mastery_breakdown
+                                  .contributions
+                                  .final
+                              }
+                            </strong>
+
+                            <span>
+                              / 15
+                            </span>
+
+                          </div>
+
+                        </div>
+
+
+                        <div className="actualEvidenceRow">
+
+                          <div>
+
+                            <strong>
+                              Independent verification
+                            </strong>
+
+                            <small>
+
+                              {
+                                progress
+                                  .weakest_topic
+                                  .mastery_breakdown
+                                  .verification_passed
+
+                                  ? "Passed"
+
+                                  : "Not passed yet"
+                              }
+
+                            </small>
+
+                          </div>
+
+                          <div className="contributionScore">
+
+                            <strong>
+                              {
+                                progress
+                                  .weakest_topic
+                                  .mastery_breakdown
+                                  .contributions
+                                  .verification
+                              }
+                            </strong>
+
+                            <span>
+                              / 15
+                            </span>
+
+                          </div>
+
+                        </div>
+
+
+                        <div className="actualEvidenceRow">
+
+                          <div>
+
+                            <strong>
+                              Hint independence
+                            </strong>
+
+                            <small>
+                              Independence score: {
+                                progress
+                                  .weakest_topic
+                                  .mastery_breakdown
+                                  .scores
+                                  .hint_independence
+                              }%
+                            </small>
+
+                          </div>
+
+                          <div className="contributionScore">
+
+                            <strong>
+                              {
+                                progress
+                                  .weakest_topic
+                                  .mastery_breakdown
+                                  .contributions
+                                  .hint_independence
+                              }
+                            </strong>
+
+                            <span>
+                              / 10
+                            </span>
+
+                          </div>
+
+                        </div>
+
+
+                        <div className="masteryMathBox">
+
+                          <div>
+
+                            <span>
+                              Raw weighted total
+                            </span>
+
+                            <strong>
+                              {
+                                progress
+                                  .weakest_topic
+                                  .mastery_breakdown
+                                  .raw_mastery
+                              }%
+                            </strong>
+
+                          </div>
+
+                          <div className="finalMasteryMath">
+
+                            <span>
+                              Final Topic Mastery
+                            </span>
+
+                            <strong>
+                              {
+                                progress
+                                  .weakest_topic
+                                  .mastery_breakdown
+                                  .final_mastery
+                              }%
+                            </strong>
+
+                          </div>
+
+                        </div>
+
+
+                        {
+                          progress
+                            .weakest_topic
+                            .mastery_breakdown
+                            .cap_reasons
+                            ?.length > 0
+                          && (
+
+                            <div className="masteryCapBox">
+
+                              <strong>
+                                Mastery safeguards
+                              </strong>
+
+                              {
+                                progress
+                                  .weakest_topic
+                                  .mastery_breakdown
+                                  .cap_reasons
+                                  .map(
+                                    (
+                                      reason,
+                                      index
+                                    ) => (
+
+                                      <p
+                                        key={
+                                          `cap-${index}`
+                                        }
+                                      >
+                                        {reason}
+                                      </p>
+
+                                    )
+                                  )
+                              }
+
+                            </div>
+
+                          )
+                        }
+
+
+                        <div className="mainLimiterBox">
+
+                          <span>
+                            MAIN THING LIMITING YOUR MASTERY
+                          </span>
+
+                          <strong>
+                            {
+                              progress
+                                .weakest_topic
+                                .mastery_breakdown
+                                .main_limiter
+                            }
+                          </strong>
+
+                        </div>
+
+                      </div>
+
+                    )
+                  }
+
+
+
+                  <div className="formulaRow">
+                    <span>
+                      First-attempt coding
+                    </span>
+
+                    <strong>
+                      35%
+                    </strong>
+                  </div>
+
+
+                  <div className="formulaRow">
+                    <span>
+                      Concept understanding / viva
+                    </span>
+
+                    <strong>
+                      25%
+                    </strong>
+                  </div>
+
+
+                  <div className="formulaRow">
+                    <span>
+                      Final corrected code
+                    </span>
+
+                    <strong>
+                      15%
+                    </strong>
+                  </div>
+
+
+                  <div className="formulaRow">
+                    <span>
+                      Independent verification
+                    </span>
+
+                    <strong>
+                      15%
+                    </strong>
+                  </div>
+
+
+                  <div className="formulaRow">
+                    <span>
+                      Hint independence
+                    </span>
+
+                    <strong>
+                      10%
+                    </strong>
+                  </div>
+
+
+                  <div className="explanationNote">
+
+                    <strong>
+                      Why does LabTwin do this?
+                    </strong>
+
+                    <p>
+                      A program working after help does
+                      not always mean the topic is fully
+                      understood. LabTwin also checks
+                      whether you understand the concept
+                      and can reproduce it independently.
+                    </p>
+
+                  </div>
+
+                </div>
+
+              </details>
+
+
+              <details className="scoreExplanation secondaryExplanation">
+
+                <summary>
+                  What does Hint Reliance mean?
+                </summary>
+
+                <div className="scoreExplanationBody">
+
+                  <div className="hintScaleRow">
+                    <strong>0</strong>
+                    <span>
+                      No hints needed
+                    </span>
+                  </div>
+
+                  <div className="hintScaleRow">
+                    <strong>1</strong>
+                    <span>
+                      Small hint
+                    </span>
+                  </div>
+
+                  <div className="hintScaleRow">
+                    <strong>2</strong>
+                    <span>
+                      More guidance
+                    </span>
+                  </div>
+
+                  <div className="hintScaleRow">
+                    <strong>3</strong>
+                    <span>
+                      Maximum hint assistance
+                    </span>
+                  </div>
+
+                  <p className="hintMeaning">
+                    So a hint reliance of {
+                      progress
+                        .weakest_topic
+                        .average_hint_level
+                    } / 3 means you usually require {
+
+                      Number(
+                        progress
+                          .weakest_topic
+                          .average_hint_level
+                      ) <= 0.5
+
+                        ? "almost no help."
+
+                        : Number(
+                            progress
+                              .weakest_topic
+                              .average_hint_level
+                          ) <= 1
+
+                          ? "only a little help."
+
+                          : Number(
+                              progress
+                                .weakest_topic
+                                .average_hint_level
+                            ) <= 2
+
+                            ? "some guidance."
+
+                            : "significant help."
+                    }
+                  </p>
+
+                </div>
+
+              </details>
 
             </div>
 
@@ -1270,6 +2461,26 @@ function App() {
 
 
         </div>
+
+      )}
+
+
+      {student && progress && (
+
+        <LearningIntelligence
+          progress={
+            progress
+          }
+          session={
+            sessionMeta
+          }
+          question={
+            question
+          }
+          onContinue={
+            nextQuestion
+          }
+        />
 
       )}
 
@@ -1523,20 +2734,20 @@ function App() {
           </h3>
 
 
-          <p
-            style={{
-              whiteSpace: "pre-wrap"
-            }}
+          <div
+            className="problemText markdownProblem"
           >
-            {
-              String(
-                question.problem || ""
-              ).replace(
-                /\\n/g,
-                "\n"
-              )
-            }
-          </p>
+            <ReactMarkdown>
+              {
+                String(
+                  question.problem || ""
+                ).replace(
+                  /\\n/g,
+                  "\n"
+                )
+              }
+            </ReactMarkdown>
+          </div>
 
 
           <h3>
@@ -1647,21 +2858,6 @@ function App() {
           }
 
 
-          <h3>
-            Detected Concept
-          </h3>
-
-
-          <p>
-
-            {
-              analysis
-                .diagnosis
-                .concept_key
-            }
-
-          </p>
-
 
           <h3>
             Misconception
@@ -1713,20 +2909,29 @@ function App() {
           </p>
 
 
-          <h3>
-            Hint
-          </h3>
 
+          {
+            analysis?.diagnosis?.hint &&
+            analysis.diagnosis.hint
+              .trim()
+              .toLowerCase() !==
+                "no correction is needed."
+            && (
+              <>
+                <h3>
+                  Hint
+                </h3>
 
-          <p>
-
-            {
-              analysis
-                .diagnosis
-                .hint
-            }
-
-          </p>
+                <p>
+                  {
+                    analysis
+                      .diagnosis
+                      .hint
+                  }
+                </p>
+              </>
+            )
+          }
 
 
         </div>
@@ -1844,14 +3049,16 @@ function App() {
 
           <h2>
             {
-              analysis?.test_score === 100
+              (analysis?.test_score === 100 &&
+                analysis?.concept_requirement_met !== false)
                 ? "Concept Verification"
                 : "Adaptive Tutor"
             }
           </h2>
 
 
-          {analysis?.test_score !== 100 && (
+          {!(analysis?.test_score === 100 &&
+                analysis?.concept_requirement_met !== false) && (
 
             <>
 
@@ -1896,7 +3103,8 @@ function App() {
           )}
 
 
-          {analysis?.test_score === 100 && (
+          {(analysis?.test_score === 100 &&
+                analysis?.concept_requirement_met !== false) && (
 
             <p>
               Your code passed independently. LabTwin is now checking whether you understand the exact concept before marking the topic as mastered.
@@ -1919,7 +3127,8 @@ function App() {
 
           <h3>
             {
-              analysis?.test_score === 100
+              (analysis?.test_score === 100 &&
+                analysis?.concept_requirement_met !== false)
                 ? "Your Verified Code"
                 : "Correct Your Code"
             }
@@ -1984,7 +3193,8 @@ function App() {
           >
 
             {
-              analysis?.test_score === 100
+              (analysis?.test_score === 100 &&
+                analysis?.concept_requirement_met !== false)
                 ? "Verify Understanding"
                 : "Evaluate Improvement"
             }
@@ -2010,6 +3220,53 @@ function App() {
             LabTwin Final Report
           </h2>
 
+          {/* FINAL_REPORT_SIMPLE_SUMMARY */}
+
+          <div
+            style={{
+              margin: "12px 0 20px",
+              padding: "14px 16px",
+              borderRadius: "12px",
+              background: "rgba(0,0,0,0.035)"
+            }}
+          >
+
+            <strong>
+              {question?.topic || "Current Topic"}
+            </strong>
+
+            <p
+              style={{
+                marginTop: "5px"
+              }}
+            >
+              {
+                evaluation?.evaluation?.status === "Mastered"
+                  ? "Topic mastered. You can move to another syllabus topic."
+                  : "More evidence is needed before this topic is mastered."
+              }
+            </p>
+
+            <p
+              style={{
+                marginTop: "5px",
+                fontSize: "0.9em"
+              }}
+            >
+              Independent Verification:{" "}
+              <strong>
+                {
+                  evaluation
+                    ?.topic_progress
+                    ?.verification_passed
+                    ? "PASSED"
+                    : "PENDING"
+                }
+              </strong>
+            </p>
+
+          </div>
+
 
           <div className="reportGrid">
 
@@ -2017,7 +3274,7 @@ function App() {
             <div>
 
               <span>
-                Retest Score
+                Final Code Score
               </span>
 
               <strong>
@@ -2082,19 +3339,29 @@ function App() {
           </div>
 
 
-          <div
-            className="adaptiveBox"
+
+          <details
+            className="adaptiveBox final-score-details"
             style={{
-              marginTop: "20px"
+              marginTop: "20px",
+              textAlign: "left"
             }}
           >
 
-            <h3>
+            <summary
+              style={{
+                cursor: "pointer",
+                fontWeight: 700,
+                padding: "4px 0"
+              }}
+            >
               Why these scores?
-            </h3>
+            </summary>
+
+
 
             <p>
-              <strong>Retest Score: </strong>
+              <strong>Final Code Score: </strong>
               {getRetestReason()}
             </p>
 
@@ -2113,9 +3380,41 @@ function App() {
               {getReadinessReason()}
             </p>
 
-          </div>
 
-          <MasteryInsight
+
+          </details>
+
+
+          <details
+            className="final-evidence-details"
+            style={{
+              marginTop: "20px",
+              textAlign: "left"
+            }}
+          >
+
+            <summary
+              style={{
+                cursor: "pointer",
+                fontWeight: 700,
+                padding: "12px 0"
+              }}
+            >
+              View Detailed Evidence
+            </summary>
+
+            <p
+              style={{
+                marginBottom: "12px",
+                opacity: 0.8
+              }}
+            >
+              View mastery calculations, viva dimensions,
+              verification evidence, hint independence and
+              the complete learning journey.
+            </p>
+
+<MasteryInsight
 
             topic={
               question?.topic ||
@@ -2283,22 +3582,8 @@ function App() {
 
           />
 
+          </details>
 
-
-          <h3>
-            Status
-          </h3>
-
-
-          <p>
-            <strong>
-              {
-                evaluation
-                  .evaluation
-                  .status
-              }
-            </strong>
-          </p>
 
 
           <h3>

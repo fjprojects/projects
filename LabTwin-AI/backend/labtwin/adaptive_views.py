@@ -2,6 +2,7 @@ import json
 import uuid
 import re
 import time
+import threading
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -12,6 +13,7 @@ from .models import StudentProfile, ConceptProgress, TopicProgress, Attempt
 
 from .views import (
     load_state,
+    load_student_snapshot,
     save_state,
     llm,
     clean_json_output,
@@ -35,6 +37,11 @@ adaptive_agent = Agent(
     llm=llm,
     verbose=False
 )
+
+
+# Prevent two Django requests from entering the adaptive
+# CrewAI generator at exactly the same time.
+_ADAPTIVE_AI_LOCK = threading.Lock()
 
 
 def _trusted_topic_memory(student_id, topic):
@@ -66,6 +73,111 @@ def _trusted_topic_memory(student_id, topic):
     }
 
 
+
+def _adaptive_current_syllabus_topics(
+    student_id,
+):
+    """
+    Current allowed syllabus topics for adaptive
+    question generation.
+
+    This prevents learning memory from another
+    syllabus from controlling the next question.
+    """
+
+    try:
+        from .views import (
+            load_student_snapshot,
+            load_state,
+        )
+
+        state = (
+            load_student_snapshot(
+                student_id
+            )
+            or load_state()
+        )
+
+        if not isinstance(
+            state,
+            dict,
+        ):
+            return None
+
+        state_student_id = (
+            state.get(
+                "student_id"
+            )
+        )
+
+        if (
+            state_student_id
+            and
+            str(
+                state_student_id
+            )
+            != str(
+                student_id
+            )
+        ):
+            return None
+
+        has_syllabus = bool(
+            state.get(
+                "syllabus_text"
+            )
+            or
+            state.get(
+                "filename"
+            )
+        )
+
+        if not has_syllabus:
+            return None
+
+        topics = []
+
+        seen = set()
+
+        for raw_topic in state.get(
+            "topics",
+            [],
+        ):
+
+            topic = str(
+                raw_topic
+            ).strip()
+
+            if not topic:
+                continue
+
+            key = (
+                topic.casefold()
+            )
+
+            if key in seen:
+                continue
+
+            seen.add(
+                key
+            )
+
+            topics.append(
+                topic
+            )
+
+        return topics
+
+    except Exception as error:
+
+        print(
+            "ADAPTIVE SYLLABUS LOOKUP ERROR:",
+            error,
+        )
+
+        return None
+
+
 def get_weakest_concept(student_id):
 
     if not student_id:
@@ -75,6 +187,22 @@ def get_weakest_concept(student_id):
         rows = TopicProgress.objects.filter(
             student_id=student_id
         )
+
+        # SYLLABUS-SCOPED-WEAKNESS
+        allowed_topics = (
+            _adaptive_current_syllabus_topics(
+                student_id
+            )
+        )
+
+        if allowed_topics is not None:
+
+            if not allowed_topics:
+                return None
+
+            rows = rows.filter(
+                topic__in=allowed_topics
+            )
 
         # 1. Highest priority:
         # exact topics that explicitly require verification.
@@ -164,6 +292,838 @@ def get_weakest_concept(student_id):
         return None
 
 
+
+# ============================================================
+# LOCAL RATE-LIMIT FALLBACK QUESTION ENGINE
+# ============================================================
+
+def build_local_fallback_question(
+    topics,
+    history,
+    language,
+    weak_concept=None,
+):
+    """
+    Deterministic emergency question generator.
+
+    Used only when the external AI provider
+    cannot accept the request.
+
+    It keeps the student moving instead of
+    stopping the entire learning session.
+    """
+
+    required_topic = ""
+
+    if weak_concept:
+        required_topic = str(
+            weak_concept.get(
+                "exact_topic",
+                "",
+            )
+            or ""
+        ).strip()
+
+
+    # FALLBACK-SYLLABUS-GUARD
+    #
+    # Example prevented:
+    # required_topic = "Java Program Structure"
+    # language       = "C"
+    # current topics = ["Pointers", ...]
+    #
+    # That old Java topic must be discarded.
+
+    allowed_topic_map = {
+        str(
+            topic
+        ).strip().casefold():
+            str(
+                topic
+            ).strip()
+
+        for topic in topics
+
+        if str(
+            topic
+        ).strip()
+    }
+
+
+    if required_topic:
+
+        required_key = (
+            required_topic
+            .casefold()
+        )
+
+        if (
+            required_key
+            not in allowed_topic_map
+        ):
+
+            print(
+                "DISCARDING OUT-OF-SYLLABUS WEAK TOPIC:",
+                required_topic,
+            )
+
+            required_topic = ""
+
+
+    if not required_topic:
+
+        used_topics = {
+            str(
+                item.get(
+                    "topic",
+                    "",
+                )
+            ).strip().casefold()
+            for item in history
+            if isinstance(
+                item,
+                dict,
+            )
+        }
+
+        for candidate in topics:
+
+            candidate_text = str(
+                candidate
+            ).strip()
+
+            if (
+                candidate_text
+                and
+                candidate_text.casefold()
+                not in used_topics
+            ):
+                required_topic = (
+                    candidate_text
+                )
+
+                break
+
+
+    if (
+        not required_topic
+        and topics
+    ):
+        required_topic = str(
+            topics[0]
+        ).strip()
+
+
+    if not required_topic:
+        required_topic = (
+            "Programming Fundamentals"
+        )
+
+
+    topic_lower = (
+        required_topic
+        .casefold()
+    )
+
+    language_lower = (
+        str(
+            language
+        )
+        .casefold()
+    )
+
+
+    # ========================================================
+    # JAVA
+    # ========================================================
+
+    if language_lower == "java":
+
+        if (
+            "program structure"
+            in topic_lower
+            or
+            "introduction to java"
+            in topic_lower
+            or
+            "main method"
+            in topic_lower
+        ):
+
+            return {
+                "topic":
+                    required_topic,
+
+                "concept_key":
+                    "OOP",
+
+                "adaptation_reason":
+                    (
+                        "AI capacity was temporarily busy, "
+                        "so LabTwin selected a built-in "
+                        "syllabus-aligned Java verification task."
+                    ),
+
+                "problem":
+                    (
+                        "Write a Java program using "
+                        "public class Main and "
+                        "public static void main(String[] args). "
+                        "Read one line of text and print exactly: "
+                        "Hello, <input>!"
+                    ),
+
+                "tests": [
+                    {
+                        "input":
+                            "Francis\n",
+
+                        "expected":
+                            "Hello, Francis!",
+                    },
+
+                    {
+                        "input":
+                            "Java\n",
+
+                        "expected":
+                            "Hello, Java!",
+                    },
+
+                    {
+                        "input":
+                            "LabTwin\n",
+
+                        "expected":
+                            "Hello, LabTwin!",
+                    },
+                ],
+            }
+
+
+        if "token" in topic_lower:
+
+            return {
+                "topic":
+                    required_topic,
+
+                "concept_key":
+                    "ARITHMETIC_OPERATORS",
+
+                "adaptation_reason":
+                    (
+                        "Built-in Java syllabus task "
+                        "used while AI capacity is busy."
+                    ),
+
+                "problem":
+                    (
+                        "Write a Java program using "
+                        "public class Main. Read two integers "
+                        "a and b and print their sum. "
+                        "Use valid Java identifiers, literals, "
+                        "operators and statements."
+                    ),
+
+                "tests": [
+                    {
+                        "input":
+                            "5 7\n",
+
+                        "expected":
+                            "12",
+                    },
+
+                    {
+                        "input":
+                            "-3 8\n",
+
+                        "expected":
+                            "5",
+                    },
+
+                    {
+                        "input":
+                            "100 25\n",
+
+                        "expected":
+                            "125",
+                    },
+                ],
+            }
+
+
+        return {
+            "topic":
+                required_topic,
+
+            "concept_key":
+                "OTHER",
+
+            "adaptation_reason":
+                (
+                    "Built-in Java fallback question "
+                    "used because the AI provider "
+                    "temporarily reached its token limit."
+                ),
+
+            "problem":
+                (
+                    "Write a Java program using "
+                    "public class Main that reads "
+                    "one integer and prints its square."
+                ),
+
+            "tests": [
+                {
+                    "input":
+                        "5\n",
+
+                    "expected":
+                        "25",
+                },
+
+                {
+                    "input":
+                        "-4\n",
+
+                    "expected":
+                        "16",
+                },
+
+                {
+                    "input":
+                        "12\n",
+
+                    "expected":
+                        "144",
+                },
+            ],
+        }
+
+
+    # ========================================================
+    # C - FUNCTION POINTER
+    # ========================================================
+
+    if (
+        language_lower == "c"
+        and
+        (
+            "pointer to function"
+            in topic_lower
+            or
+            "function pointer"
+            in topic_lower
+        )
+    ):
+
+        return {
+            "topic":
+                required_topic,
+
+            "concept_key":
+                "POINTERS",
+
+            "adaptation_reason":
+                (
+                    "Built-in C function-pointer "
+                    "verification task used while "
+                    "AI capacity is unavailable."
+                ),
+
+            "problem":
+                (
+                    "Write a C program that defines "
+                    "two functions add(int,int) and "
+                    "subtract(int,int). "
+                    "Read three integers: a, b and choice. "
+                    "Use a function pointer. "
+                    "If choice is 1 call add through "
+                    "the function pointer; otherwise "
+                    "call subtract through the pointer. "
+                    "Print only the result."
+                ),
+
+            "tests": [
+                {
+                    "input":
+                        "8 3 1\n",
+
+                    "expected":
+                        "11",
+                },
+
+                {
+                    "input":
+                        "8 3 2\n",
+
+                    "expected":
+                        "5",
+                },
+
+                {
+                    "input":
+                        "-2 5 1\n",
+
+                    "expected":
+                        "3",
+                },
+            ],
+        }
+
+
+    # ========================================================
+    # C - POINTER TO POINTER
+    # ========================================================
+
+    if (
+        language_lower == "c"
+        and
+        "pointer to pointer"
+        in topic_lower
+    ):
+
+        return {
+            "topic":
+                required_topic,
+
+            "concept_key":
+                "POINTERS",
+
+            "adaptation_reason":
+                (
+                    "Built-in pointer-to-pointer "
+                    "verification task used because "
+                    "the AI service is temporarily busy."
+                ),
+
+            "problem":
+                (
+                    "Write a C program that reads "
+                    "one integer x. Create an int pointer "
+                    "pointing to x and an int double pointer "
+                    "pointing to that pointer. "
+                    "Using the double pointer, add 5 to x "
+                    "and print the final value."
+                ),
+
+            "tests": [
+                {
+                    "input":
+                        "10\n",
+
+                    "expected":
+                        "15",
+                },
+
+                {
+                    "input":
+                        "-5\n",
+
+                    "expected":
+                        "0",
+                },
+
+                {
+                    "input":
+                        "100\n",
+
+                    "expected":
+                        "105",
+                },
+            ],
+        }
+
+
+    # ========================================================
+    # C - POINTER TO STRUCTURE
+    # ========================================================
+
+    if (
+        language_lower == "c"
+        and
+        (
+            "pointer to structure"
+            in topic_lower
+            or
+            "structure pointer"
+            in topic_lower
+        )
+    ):
+
+        return {
+            "topic":
+                required_topic,
+
+            "concept_key":
+                "STRUCTURES",
+
+            "adaptation_reason":
+                (
+                    "Built-in structure-pointer task "
+                    "used while Groq capacity is busy."
+                ),
+
+            "problem":
+                (
+                    "Define a struct Student containing "
+                    "integer id and integer mark. "
+                    "Read id and mark. "
+                    "Create a pointer to the structure "
+                    "and print the values using the -> operator "
+                    "in the format: id mark"
+                ),
+
+            "tests": [
+                {
+                    "input":
+                        "1 90\n",
+
+                    "expected":
+                        "1 90",
+                },
+
+                {
+                    "input":
+                        "25 76\n",
+
+                    "expected":
+                        "25 76",
+                },
+
+                {
+                    "input":
+                        "100 100\n",
+
+                    "expected":
+                        "100 100",
+                },
+            ],
+        }
+
+
+    # ========================================================
+    # C - DYNAMIC MEMORY
+    # ========================================================
+
+    if (
+        language_lower == "c"
+        and
+        (
+            "dynamic memory"
+            in topic_lower
+            or
+            "malloc"
+            in topic_lower
+            or
+            "calloc"
+            in topic_lower
+        )
+    ):
+
+        return {
+            "topic":
+                required_topic,
+
+            "concept_key":
+                "DYNAMIC_MEMORY",
+
+            "adaptation_reason":
+                (
+                    "Built-in dynamic-memory task "
+                    "used because external AI capacity "
+                    "is temporarily unavailable."
+                ),
+
+            "problem":
+                (
+                    "Write a C program that reads n, "
+                    "dynamically allocates memory for n integers "
+                    "using malloc or calloc, reads the integers, "
+                    "prints their sum, and frees the memory."
+                ),
+
+            "tests": [
+                {
+                    "input":
+                        "4\n1 2 3 4\n",
+
+                    "expected":
+                        "10",
+                },
+
+                {
+                    "input":
+                        "3\n-2 5 7\n",
+
+                    "expected":
+                        "10",
+                },
+
+                {
+                    "input":
+                        "1\n99\n",
+
+                    "expected":
+                        "99",
+                },
+            ],
+        }
+
+
+    # ========================================================
+    # C - FILE HANDLING
+    # ========================================================
+
+    if (
+        language_lower == "c"
+        and
+        (
+            "file"
+            in topic_lower
+            or
+            "fopen"
+            in topic_lower
+            or
+            "fclose"
+            in topic_lower
+            or
+            "fread"
+            in topic_lower
+            or
+            "fwrite"
+            in topic_lower
+        )
+    ):
+
+        return {
+            "topic":
+                required_topic,
+
+            "concept_key":
+                "FILES",
+
+            "adaptation_reason":
+                (
+                    "Built-in file-handling task "
+                    "used while AI capacity is busy."
+                ),
+
+            "problem":
+                (
+                    "Write a C program that reads one word "
+                    "from standard input. Open a file named "
+                    "labtwin_temp.txt for writing, write the word, "
+                    "close the file, reopen it for reading, "
+                    "read the word back, print it, "
+                    "and close the file."
+                ),
+
+            "tests": [
+                {
+                    "input":
+                        "hello\n",
+
+                    "expected":
+                        "hello",
+                },
+
+                {
+                    "input":
+                        "LabTwin\n",
+
+                    "expected":
+                        "LabTwin",
+                },
+
+                {
+                    "input":
+                        "pointer\n",
+
+                    "expected":
+                        "pointer",
+                },
+            ],
+        }
+
+
+    # ========================================================
+    # C - STRING USING POINTERS
+    # ========================================================
+
+    if (
+        language_lower == "c"
+        and
+        (
+            "string"
+            in topic_lower
+            and
+            "pointer"
+            in topic_lower
+        )
+    ):
+
+        return {
+            "topic":
+                required_topic,
+
+            "concept_key":
+                "POINTERS",
+
+            "adaptation_reason":
+                (
+                    "Built-in string-pointer task "
+                    "used during temporary AI capacity limits."
+                ),
+
+            "problem":
+                (
+                    "Write a C program that reads one word. "
+                    "Using a char pointer, count the number "
+                    "of characters without calling strlen. "
+                    "Print only the length."
+                ),
+
+            "tests": [
+                {
+                    "input":
+                        "hello\n",
+
+                    "expected":
+                        "5",
+                },
+
+                {
+                    "input":
+                        "pointer\n",
+
+                    "expected":
+                        "7",
+                },
+
+                {
+                    "input":
+                        "LabTwin\n",
+
+                    "expected":
+                        "7",
+                },
+            ],
+        }
+
+
+    # ========================================================
+    # C - GENERAL POINTER / ARRAY POINTER
+    # ========================================================
+
+    if (
+        language_lower == "c"
+    ):
+
+        return {
+            "topic":
+                required_topic,
+
+            "concept_key":
+                "POINTERS",
+
+            "adaptation_reason":
+                (
+                    "Built-in C pointer question "
+                    "used because Groq reached its "
+                    "temporary token-per-minute limit."
+                ),
+
+            "problem":
+                (
+                    "Write a C program that reads n "
+                    "followed by n integers. "
+                    "Use a pointer to access the array elements "
+                    "and calculate their sum. "
+                    "Print only the sum."
+                ),
+
+            "tests": [
+                {
+                    "input":
+                        "4\n1 2 3 4\n",
+
+                    "expected":
+                        "10",
+                },
+
+                {
+                    "input":
+                        "3\n10 -5 2\n",
+
+                    "expected":
+                        "7",
+                },
+
+                {
+                    "input":
+                        "5\n1 1 1 1 1\n",
+
+                    "expected":
+                        "5",
+                },
+            ],
+        }
+
+
+    # ========================================================
+    # PYTHON
+    # ========================================================
+
+    return {
+        "topic":
+            required_topic,
+
+        "concept_key":
+            "OTHER",
+
+        "adaptation_reason":
+            (
+                "Built-in syllabus question used "
+                "because external AI capacity "
+                "is temporarily unavailable."
+            ),
+
+        "problem":
+            (
+                "Write a Python program that reads "
+                "one integer and prints its square."
+            ),
+
+        "tests": [
+            {
+                "input":
+                    "5\n",
+
+                "expected":
+                    "25",
+            },
+
+            {
+                "input":
+                    "-3\n",
+
+                "expected":
+                    "9",
+            },
+
+            {
+                "input":
+                    "12\n",
+
+                "expected":
+                    "144",
+            },
+        ],
+    }
+
+
 def generate_adaptive_question(
     topics,
     history,
@@ -175,7 +1135,7 @@ def generate_adaptive_question(
 
         item.get("problem", "")
 
-        for item in history[-10:]
+        for item in history[-4:]
 
     ]
 
@@ -416,15 +1376,9 @@ Return ONLY valid JSON:
         ),
         agent=adaptive_agent
     )
-
-
-    crew = Crew(
-        agents=[adaptive_agent],
-        tasks=[task],
-        process=Process.sequential,
-        verbose=False
-    )
-
+    # IMPORTANT:
+    # Do not create one Crew and reuse it across retries.
+    # Every attempt below gets a fresh Agent, Task and Crew.
 
     # AI providers occasionally return malformed JSON or rate-limit errors.
     # Retry safely, but WAIT when the provider tells us to slow down.
@@ -433,7 +1387,99 @@ Return ONLY valid JSON:
     for attempt_number in range(1, 4):
 
         try:
-            result = crew.kickoff()
+            # ------------------------------------------------
+            # FRESH CREW PER RETRY
+            # ------------------------------------------------
+
+            lock_acquired = (
+                _ADAPTIVE_AI_LOCK.acquire(
+                    timeout=120
+                )
+            )
+
+            if not lock_acquired:
+                raise RuntimeError(
+                    "AI question generator is busy. "
+                    "Please try again in a few seconds."
+                )
+
+            try:
+
+                # Never reuse the old Agent executor.
+                fresh_agent = Agent(
+                    role=(
+                        "Adaptive Lab Question Planner"
+                    ),
+
+                    goal=(
+                        "Select and generate the best next "
+                        "programming lab question based on "
+                        "the uploaded syllabus, programming "
+                        "language, and student weaknesses."
+                    ),
+
+                    backstory=(
+                        "You are a university programming lab "
+                        "instructor. You never convert "
+                        "language-specific concepts into "
+                        "another language. C concepts remain C, "
+                        "Java concepts remain Java, and Python "
+                        "concepts remain Python."
+                    ),
+
+                    llm=llm,
+                    verbose=False,
+                )
+
+
+                # Fresh Task.
+                # Reuse only the prompt TEXT from the template task,
+                # not the previous execution object.
+                fresh_task = Task(
+                    description=
+                        task.description,
+
+                    expected_output=(
+                        "One language-correct adaptive "
+                        "programming question"
+                    ),
+
+                    agent=
+                        fresh_agent,
+                )
+
+
+                # Fresh Crew / executor.
+                fresh_crew = Crew(
+                    agents=[
+                        fresh_agent
+                    ],
+
+                    tasks=[
+                        fresh_task
+                    ],
+
+                    process=
+                        Process.sequential,
+
+                    verbose=False,
+                )
+
+
+                print(
+                    "ADAPTIVE AI: fresh CrewAI executor "
+                    f"created for attempt {attempt_number}"
+                )
+
+
+                result = (
+                    fresh_crew.kickoff()
+                )
+
+
+            finally:
+
+                _ADAPTIVE_AI_LOCK.release()
 
             generated = clean_json_output(
                 result.raw
@@ -512,6 +1558,27 @@ Return ONLY valid JSON:
             if attempt_number >= 3:
                 break
 
+            is_executor_busy = (
+                "executor is already running"
+                in lowered
+                or
+                "cannot invoke the same executor"
+                in lowered
+            )
+
+            if is_executor_busy:
+
+                print(
+                    "CREWAI EXECUTOR BUSY: "
+                    "discarding this executor and "
+                    "creating a fresh one."
+                )
+
+                if attempt_number < 3:
+                    time.sleep(2.0)
+                    continue
+
+
             is_rate_limit = (
                 "rate limit" in lowered
                 or "rate_limit" in lowered
@@ -520,35 +1587,246 @@ Return ONLY valid JSON:
             )
 
             if is_rate_limit:
-                match = re.search(
-                    r"try again in\s*([0-9.]+)s",
-                    message,
-                    re.IGNORECASE
-                )
 
-                if match:
-                    wait_seconds = float(match.group(1)) + 1.5
-                else:
-                    wait_seconds = 10.0 * attempt_number
-
-                wait_seconds = max(
-                    3.0,
-                    min(wait_seconds, 35.0)
+                print(
+                    "GROQ TPM LIMIT REACHED."
                 )
 
                 print(
-                    f"GROQ RATE LIMIT: waiting {wait_seconds:.1f}s before retry..."
+                    "LABTWIN HYBRID MODE: "
+                    "switching immediately to "
+                    "local syllabus question."
                 )
 
-                time.sleep(wait_seconds)
+                return (
+                    build_local_fallback_question(
+                        topics,
+                        history,
+                        language,
+                        weak_concept,
+                    )
+                )
 
             else:
                 time.sleep(1.0)
 
-    raise ValueError(
-        "AI question generation failed after 3 attempts. "
-        f"Last error: {last_error}"
+    print(
+        "AI question generation unavailable after retries:",
+        last_error,
     )
+
+    print(
+        "LABTWIN FALLBACK: continuing with local question."
+    )
+
+    return build_local_fallback_question(
+        topics,
+        history,
+        language,
+        weak_concept,
+    )
+
+
+
+def _sanitize_state_for_current_syllabus(
+    state,
+):
+    """
+    Remove questions/history that do not belong
+    to the currently active syllabus.
+
+    This is the final protection against cases like:
+
+        language = C
+        syllabus = Pointers
+        old topic = Java Program Structure
+    """
+
+    if not isinstance(
+        state,
+        dict,
+    ):
+        return state
+
+    if state.get(
+        "mode"
+    ) == "existing_questions":
+        return state
+
+
+    topics = [
+        str(
+            topic
+        ).strip()
+
+        for topic in state.get(
+            "topics",
+            []
+        )
+
+        if str(
+            topic
+        ).strip()
+    ]
+
+
+    allowed = {
+        topic.casefold():
+            topic
+
+        for topic in topics
+    }
+
+
+    if not allowed:
+
+        state[
+            "history"
+        ] = []
+
+        state[
+            "current_question"
+        ] = None
+
+        return state
+
+
+    # --------------------------------------------------------
+    # CLEAN HISTORY
+    # --------------------------------------------------------
+
+    clean_history = []
+
+    for item in state.get(
+        "history",
+        []
+    ):
+
+        if not isinstance(
+            item,
+            dict,
+        ):
+            continue
+
+        topic = str(
+            item.get(
+                "topic",
+                ""
+            )
+        ).strip()
+
+        key = (
+            topic.casefold()
+        )
+
+        if key not in allowed:
+
+            print(
+                "REMOVING CROSS-SYLLABUS HISTORY:",
+                topic,
+            )
+
+            continue
+
+
+        # Canonical syllabus spelling.
+        item[
+            "topic"
+        ] = allowed[
+            key
+        ]
+
+        clean_history.append(
+            item
+        )
+
+
+    state[
+        "history"
+    ] = clean_history
+
+
+    # --------------------------------------------------------
+    # CLEAN CURRENT QUESTION
+    # --------------------------------------------------------
+
+    question = state.get(
+        "current_question"
+    )
+
+
+    if isinstance(
+        question,
+        dict,
+    ):
+
+        question_topic = str(
+            question.get(
+                "topic",
+                ""
+            )
+        ).strip()
+
+        question_language = str(
+            question.get(
+                "language",
+                ""
+            )
+        ).strip()
+
+        state_language = str(
+            state.get(
+                "language",
+                ""
+            )
+        ).strip()
+
+
+        topic_valid = (
+            question_topic.casefold()
+            in allowed
+        )
+
+
+        language_valid = (
+            not question_language
+            or
+            not state_language
+            or
+            question_language.casefold()
+            ==
+            state_language.casefold()
+        )
+
+
+        if not (
+            topic_valid
+            and
+            language_valid
+        ):
+
+            print(
+                "REMOVING INVALID CURRENT QUESTION:",
+                question_topic,
+                "/",
+                question_language,
+            )
+
+            state[
+                "current_question"
+            ] = None
+
+        else:
+
+            question[
+                "topic"
+            ] = allowed[
+                question_topic.casefold()
+            ]
+
+
+    return state
+
 
 
 @csrf_exempt
@@ -573,7 +1851,25 @@ def adaptive_next_question(request):
         )
 
 
-        state = load_state()
+        state = (
+            load_student_snapshot(
+                student_id
+            )
+            or load_state()
+        )
+
+
+        # Final syllabus/session safety guard.
+        state = (
+            _sanitize_state_for_current_syllabus(
+                state
+            )
+        )
+
+        # Save the cleaned version immediately.
+        save_state(
+            state
+        )
 
 
         state_student_id = state.get(
@@ -610,6 +1906,36 @@ def adaptive_next_question(request):
         )
 
 
+        # UNSUPPORTED-RUNTIME-GUARD
+        if language not in [
+            "Python",
+            "Java",
+            "C",
+        ]:
+
+            return JsonResponse(
+                {
+                    "error":
+                        state.get(
+                            "unsupported_reason"
+                        )
+                        or
+                        (
+                            "This syllabus requires a runtime "
+                            "that is not supported by the "
+                            "current automatic code runner."
+                        ),
+
+                    "unsupported_runtime":
+                        True,
+
+                    "language":
+                        language,
+                },
+                status=422,
+            )
+
+
         history = state.get(
             "history",
             []
@@ -619,6 +1945,71 @@ def adaptive_next_question(request):
         weak_concept = get_weakest_concept(
             student_id
         )
+
+
+        # FINAL-WEAK-TOPIC-GUARD
+        allowed_topic_map = {
+            str(
+                topic
+            ).strip().casefold():
+                str(
+                    topic
+                ).strip()
+
+            for topic in state.get(
+                "topics",
+                []
+            )
+
+            if str(
+                topic
+            ).strip()
+        }
+
+
+        if weak_concept:
+
+            weak_topic = str(
+                weak_concept.get(
+                    "exact_topic",
+                    ""
+                )
+            ).strip()
+
+            weak_key = (
+                weak_topic.casefold()
+            )
+
+
+            if (
+                weak_topic
+                and
+                weak_key
+                not in allowed_topic_map
+            ):
+
+                print(
+                    "IGNORING OLD WEAK TOPIC:",
+                    weak_topic,
+                )
+
+                weak_concept = None
+
+
+            elif (
+                weak_topic
+                and
+                weak_key
+                in allowed_topic_map
+            ):
+
+                weak_concept[
+                    "exact_topic"
+                ] = (
+                    allowed_topic_map[
+                        weak_key
+                    ]
+                )
 
 
         is_verification = bool(
@@ -734,6 +2125,101 @@ def adaptive_next_question(request):
                 language,
 
                 weak_concept
+            )
+
+
+            # FINAL-GENERATED-TOPIC-GUARD
+            allowed_topic_map = {
+                str(
+                    topic
+                ).strip().casefold():
+                    str(
+                        topic
+                    ).strip()
+
+                for topic in state.get(
+                    "topics",
+                    []
+                )
+
+                if str(
+                    topic
+                ).strip()
+            }
+
+
+            generated_topic = str(
+                generated.get(
+                    "topic",
+                    ""
+                )
+            ).strip()
+
+
+            generated_key = (
+                generated_topic.casefold()
+            )
+
+
+            if (
+                generated_key
+                not in allowed_topic_map
+            ):
+
+                print(
+                    "REJECTED CROSS-SYLLABUS QUESTION:",
+                    generated_topic,
+                )
+
+                print(
+                    "Generating safe local fallback "
+                    "from CURRENT syllabus only."
+                )
+
+
+                generated = (
+                    build_local_fallback_question(
+                        state.get(
+                            "topics",
+                            []
+                        ),
+                        history,
+                        language,
+                        None,
+                    )
+                )
+
+
+                generated_topic = str(
+                    generated.get(
+                        "topic",
+                        ""
+                    )
+                ).strip()
+
+                generated_key = (
+                    generated_topic.casefold()
+                )
+
+
+            if (
+                generated_key
+                not in allowed_topic_map
+            ):
+
+                raise ValueError(
+                    "Question rejected because its topic "
+                    "does not belong to the active syllabus."
+                )
+
+
+            # Always use exact syllabus spelling.
+            generated[
+                "topic"
+            ] = (
+                allowed_topic_map[
+                    generated_key
+                ]
             )
 
 

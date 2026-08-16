@@ -6,6 +6,7 @@ from .views import (
     analyze_code,
     tutor_help,
     evaluate_code,
+    student_session,
 )
 
 from .memory_views import (
@@ -38,6 +39,11 @@ urlpatterns = [
     path(
         "progress/",
         progress_dashboard
+    ),
+
+    path(
+        "student-session/",
+        student_session
     ),
 
     path(

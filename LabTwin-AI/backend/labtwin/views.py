@@ -1,4 +1,7 @@
 import json
+import hashlib
+import re
+import time
 import os
 import subprocess
 import sys
@@ -20,6 +23,16 @@ _crewai_cache.mark_cache_breakpoint = lambda message: message
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 STATE_FILE = PROJECT_ROOT / "syllabus_state.json"
+
+STUDENT_SESSION_DIR = (
+    PROJECT_ROOT /
+    "student_sessions"
+)
+
+SYLLABUS_ANALYSIS_CACHE_FILE = (
+    PROJECT_ROOT /
+    "syllabus_analysis_cache.json"
+)
 
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -270,8 +283,111 @@ def default_state():
         "existing_questions": [],
         "question_index": 0,
         "history": [],
-        "current_question": None
+        "current_question": None,
     }
+
+
+def _student_session_path(
+    student_id,
+):
+    if student_id in (
+        None,
+        "",
+    ):
+        return None
+
+    STUDENT_SESSION_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    safe_id = str(
+        student_id
+    ).strip()
+
+    return (
+        STUDENT_SESSION_DIR /
+        f"student_{safe_id}.json"
+    )
+
+
+def load_student_snapshot(
+    student_id,
+):
+    path = _student_session_path(
+        student_id
+    )
+
+    if (
+        path is None
+        or not path.exists()
+    ):
+        return None
+
+    try:
+        with open(
+            path,
+            "r",
+            encoding="utf-8",
+        ) as file:
+            data = json.load(
+                file
+            )
+
+        if isinstance(
+            data,
+            dict,
+        ):
+            return data
+
+    except Exception as error:
+        print(
+            "STUDENT SESSION READ ERROR:",
+            error,
+        )
+
+    return None
+
+
+def save_student_snapshot(
+    state,
+):
+    if not isinstance(
+        state,
+        dict,
+    ):
+        return
+
+    student_id = state.get(
+        "student_id"
+    )
+
+    path = _student_session_path(
+        student_id
+    )
+
+    if path is None:
+        return
+
+    try:
+        with open(
+            path,
+            "w",
+            encoding="utf-8",
+        ) as file:
+
+            json.dump(
+                state,
+                file,
+                indent=2,
+                ensure_ascii=False,
+            )
+
+    except Exception as error:
+        print(
+            "STUDENT SESSION WRITE ERROR:",
+            error,
+        )
 
 
 def load_state():
@@ -279,15 +395,346 @@ def load_state():
         return default_state()
 
     try:
-        with open(STATE_FILE, "r", encoding="utf-8") as file:
-            return json.load(file)
+        with open(
+            STATE_FILE,
+            "r",
+            encoding="utf-8",
+        ) as file:
+            data = json.load(
+                file
+            )
+
+        if isinstance(
+            data,
+            dict,
+        ):
+            return data
+
     except Exception:
-        return default_state()
+        pass
+
+    return default_state()
 
 
-def save_state(state):
-    with open(STATE_FILE, "w", encoding="utf-8") as file:
-        json.dump(state, file, indent=2, ensure_ascii=False)
+def save_state(
+    state,
+):
+    with open(
+        STATE_FILE,
+        "w",
+        encoding="utf-8",
+    ) as file:
+
+        json.dump(
+            state,
+            file,
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    # Every active-state save is also copied
+    # into that student's own persistent session.
+    if state.get(
+        "student_id"
+    ):
+        save_student_snapshot(
+            state
+        )
+
+
+def activate_student_session(
+    student_id,
+    fresh=False,
+):
+    """
+    Activate one student's saved state.
+
+    fresh=True:
+        create a completely new learning state.
+
+    fresh=False:
+        restore the student's saved syllabus,
+        question and history when available.
+    """
+
+    if fresh:
+        state = default_state()
+
+        state[
+            "student_id"
+        ] = str(
+            student_id
+        )
+
+        save_state(
+            state
+        )
+
+        return state
+
+
+    state = load_student_snapshot(
+        student_id
+    )
+
+
+    # Migration path for sessions created before
+    # per-student snapshots were introduced.
+    if not state:
+
+        active = load_state()
+
+        if str(
+            active.get(
+                "student_id"
+            )
+        ) == str(
+            student_id
+        ):
+            state = active
+
+
+    if not state:
+        state = default_state()
+
+        state[
+            "student_id"
+        ] = str(
+            student_id
+        )
+
+
+    state[
+        "student_id"
+    ] = str(
+        student_id
+    )
+
+    save_state(
+        state
+    )
+
+    return state
+
+
+def public_student_session(
+    state,
+):
+    """
+    Return session information safe for React.
+
+    Hidden tests are intentionally NOT returned.
+    """
+
+    if not isinstance(
+        state,
+        dict,
+    ):
+        state = default_state()
+
+    question = state.get(
+        "current_question"
+    )
+
+    public_question = None
+
+    if isinstance(
+        question,
+        dict,
+    ):
+
+        language = question.get(
+            "language",
+            state.get(
+                "language",
+                "Python",
+            ),
+        )
+
+        public_question = {
+            "id":
+                question.get(
+                    "id"
+                ),
+
+            "source":
+                question.get(
+                    "source",
+                    "generated",
+                ),
+
+            "language":
+                language,
+
+            "execution_supported":
+                language
+                in [
+                    "Python",
+                    "Java",
+                    "C",
+                ],
+
+            "topic":
+                question.get(
+                    "topic",
+                    "Programming",
+                ),
+
+            "concept_key":
+                question.get(
+                    "concept_key",
+                    "OTHER",
+                ),
+
+            "problem":
+                question.get(
+                    "problem",
+                    "",
+                ),
+
+            "adaptation_reason":
+                question.get(
+                    "adaptation_reason",
+                    "",
+                ),
+
+            "is_verification":
+                bool(
+                    question.get(
+                        "is_verification",
+                        False,
+                    )
+                ),
+
+            "question_number":
+                max(
+                    1,
+                    len(
+                        state.get(
+                            "history",
+                            [],
+                        )
+                    ),
+                ),
+        }
+
+
+    return {
+        "student_id":
+            state.get(
+                "student_id"
+            ),
+
+        "has_syllabus":
+            bool(
+                state.get(
+                    "syllabus_text"
+                )
+            ),
+
+        "filename":
+            state.get(
+                "filename",
+                "",
+            ),
+
+        "language":
+            state.get(
+                "language",
+                "Python",
+            ),
+
+        "mode":
+            state.get(
+                "mode",
+                "",
+            ),
+
+        "topics":
+            state.get(
+                "topics",
+                [],
+            ),
+
+        "existing_question_count":
+            len(
+                state.get(
+                    "existing_questions",
+                    [],
+                )
+            ),
+
+        "question_index":
+            state.get(
+                "question_index",
+                0,
+            ),
+
+        "has_current_question":
+            public_question
+            is not None,
+
+        "current_question":
+            public_question,
+    }
+
+
+@csrf_exempt
+def student_session(
+    request,
+):
+    if request.method != "GET":
+        return JsonResponse(
+            {
+                "error":
+                    "GET required"
+            },
+            status=405,
+        )
+
+    student_id = request.GET.get(
+        "student_id"
+    )
+
+    if not student_id:
+        return JsonResponse(
+            {
+                "error":
+                    "student_id is required"
+            },
+            status=400,
+        )
+
+    activate = (
+        request.GET.get(
+            "activate",
+            "1",
+        )
+        != "0"
+    )
+
+    if activate:
+        state = activate_student_session(
+            student_id,
+            fresh=False,
+        )
+    else:
+        state = (
+            load_student_snapshot(
+                student_id
+            )
+            or default_state()
+        )
+
+    return JsonResponse({
+        "success":
+            True,
+
+        "session":
+            public_student_session(
+                state
+            ),
+    })
 
 
 def extract_file_text(uploaded_file):
@@ -311,14 +758,33 @@ def extract_file_text(uploaded_file):
     raise ValueError("Only PDF and TXT files are supported.")
 
 
-def get_current_question(question_id=None):
-    state = load_state()
-    question = state.get("current_question")
+def get_current_question(
+    question_id=None,
+    student_id=None,
+):
+    if student_id:
+        state = (
+            load_student_snapshot(
+                student_id
+            )
+            or load_state()
+        )
+    else:
+        state = load_state()
+
+    question = state.get(
+        "current_question"
+    )
 
     if not question:
         return None
 
-    if question_id and question.get("id") != question_id:
+    if (
+        question_id
+        and question.get(
+            "id"
+        ) != question_id
+    ):
         return None
 
     return question
@@ -328,12 +794,266 @@ def get_current_question(question_id=None):
 # LANGUAGE DETECTION
 # ============================================================
 
+
+# ============================================================
+# SYLLABUS AI CACHE + RATE LIMIT PROTECTION
+# ============================================================
+
+def _syllabus_cache_key(text):
+    """
+    Stable fingerprint for syllabus content.
+
+    Same syllabus content = same cache key,
+    even when uploaded again.
+    """
+
+    normalized = "\n".join(
+        line.strip()
+        for line in text.splitlines()
+        if line.strip()
+    )
+
+    return hashlib.sha256(
+        normalized.encode("utf-8")
+    ).hexdigest()
+
+
+def _load_syllabus_analysis_cache():
+
+    if not SYLLABUS_ANALYSIS_CACHE_FILE.exists():
+        return {}
+
+    try:
+        with open(
+            SYLLABUS_ANALYSIS_CACHE_FILE,
+            "r",
+            encoding="utf-8",
+        ) as file:
+            data = json.load(file)
+
+        if isinstance(data, dict):
+            return data
+
+    except Exception as error:
+        print(
+            "SYLLABUS CACHE READ ERROR:",
+            error,
+        )
+
+    return {}
+
+
+def _save_syllabus_analysis_cache(cache):
+
+    try:
+
+        # Prevent this small local cache from
+        # growing forever.
+        if len(cache) > 30:
+            cache = dict(
+                list(
+                    cache.items()
+                )[-30:]
+            )
+
+        with open(
+            SYLLABUS_ANALYSIS_CACHE_FILE,
+            "w",
+            encoding="utf-8",
+        ) as file:
+
+            json.dump(
+                cache,
+                file,
+                indent=2,
+                ensure_ascii=False,
+            )
+
+    except Exception as error:
+
+        print(
+            "SYLLABUS CACHE WRITE ERROR:",
+            error,
+        )
+
+
+def _compact_syllabus_text(
+    text,
+    max_chars=11000,
+):
+    """
+    Reduce duplicate PDF/slide text before
+    sending it to the LLM.
+
+    Example:
+    repeated headings such as "Java Tokens"
+    are sent only once.
+    """
+
+    cleaned_lines = []
+
+    seen = set()
+
+    for raw_line in text.splitlines():
+
+        line = " ".join(
+            raw_line.split()
+        ).strip()
+
+        if not line:
+            continue
+
+        key = line.casefold()
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        cleaned_lines.append(
+            line
+        )
+
+    compact = "\n".join(
+        cleaned_lines
+    )
+
+    if len(compact) <= max_chars:
+        return compact
+
+    # Keep both beginning and ending instead
+    # of blindly deleting the entire end.
+    first_size = int(
+        max_chars * 0.75
+    )
+
+    last_size = (
+        max_chars -
+        first_size
+    )
+
+    return (
+        compact[:first_size]
+        +
+        "\n\n[... syllabus shortened for AI analysis ...]\n\n"
+        +
+        compact[-last_size:]
+    )
+
+
+def _is_rate_limit_error(error):
+
+    message = str(
+        error
+    ).lower()
+
+    indicators = (
+        "rate limit",
+        "ratelimit",
+        "rate_limit",
+        "too many requests",
+        "tokens per minute",
+        "tpm",
+        "429",
+    )
+
+    return any(
+        indicator in message
+        for indicator in indicators
+    )
+
+
+def _groq_retry_wait_seconds(
+    error,
+    attempt_number,
+):
+    """
+    Read Groq's own retry duration when
+    available and add a safety buffer.
+    """
+
+    message = str(
+        error
+    )
+
+    patterns = (
+        r"try again in\s*([0-9.]+)\s*s",
+        r"retry after\s*([0-9.]+)\s*s",
+        r"retry_after[^0-9]*([0-9.]+)",
+    )
+
+    for pattern in patterns:
+
+        match = re.search(
+            pattern,
+            message,
+            re.IGNORECASE,
+        )
+
+        if match:
+
+            try:
+                requested = float(
+                    match.group(1)
+                )
+
+                # Add buffer because retrying exactly
+                # on Groq's boundary can fail again.
+                return max(
+                    5.0,
+                    min(
+                        requested + 5.0,
+                        70.0,
+                    ),
+                )
+
+            except Exception:
+                pass
+
+    # Fallback when Groq did not include
+    # an exact retry duration.
+    return min(
+        15.0 +
+        (
+            attempt_number *
+            10.0
+        ),
+        70.0,
+    )
+
+
 def analyze_syllabus_text(text):
-    task = Task(
-        description=f"""
+
+    compact_text = (
+        _compact_syllabus_text(
+            text
+        )
+    )
+
+    print(
+        "SYLLABUS ORIGINAL CHARS:",
+        len(text),
+    )
+
+    print(
+        "SYLLABUS AI CHARS:",
+        len(compact_text),
+    )
+
+    last_error = None
+
+    # Four controlled attempts.
+    # Rate-limit retries WAIT before trying again.
+    for attempt_number in range(
+        1,
+        5,
+    ):
+
+        task = Task(
+            description=f"""
 Analyze this programming lab syllabus:
 
-{text[:15000]}
+{compact_text}
 
 Detect:
 
@@ -343,11 +1063,24 @@ Detect:
 
 LANGUAGE RULES:
 
-Return only one of:
+Return one of:
 
 Python
 Java
 C
+Web/FullStack
+
+IMPORTANT EXECUTION CLASSIFICATION:
+
+Choose Web/FullStack when the syllabus mainly contains
+React, Django REST Framework, APIs, Axios, Fetch,
+CORS, authentication, ViewSets, Postman,
+browser storage, frontend/backend integration,
+deployment, or similar web application topics.
+
+Do NOT classify an entire React/Django/full-stack
+syllabus as Python merely because Django itself
+uses Python.
 
 Examples:
 
@@ -387,40 +1120,120 @@ Return ONLY valid JSON:
     "existing_questions": []
 }}
 """,
-        expected_output="Valid syllabus JSON",
-        agent=syllabus_agent
-    )
+            expected_output=(
+                "Valid syllabus JSON"
+            ),
+            agent=syllabus_agent,
+        )
 
-    crew = Crew(
-        agents=[syllabus_agent],
-        tasks=[task],
-        process=Process.sequential,
-        verbose=False
-    )
+        crew = Crew(
+            agents=[
+                syllabus_agent
+            ],
+            tasks=[
+                task
+            ],
+            process=Process.sequential,
+            verbose=False,
+        )
 
-    last_error = None
-
-    for attempt in range(3):
         try:
-            result = crew.kickoff()
-            raw = getattr(result, "raw", result)
 
             print(
-                f"SYLLABUS AI RESPONSE attempt {attempt + 1}:",
-                repr(str(raw)[:500])
+                f"SYLLABUS AI attempt {attempt_number}/4..."
             )
 
-            return clean_json_output(raw)
+            result = crew.kickoff()
+
+            raw = getattr(
+                result,
+                "raw",
+                result,
+            )
+
+            print(
+                f"SYLLABUS AI RESPONSE attempt {attempt_number}:",
+                repr(
+                    str(raw)[:500]
+                ),
+            )
+
+            parsed = clean_json_output(
+                raw
+            )
+
+            return parsed
 
         except Exception as error:
+
             last_error = error
+
             print(
-                f"SYLLABUS ANALYSIS attempt {attempt + 1} failed:",
-                error
+                f"SYLLABUS ANALYSIS attempt {attempt_number} failed:",
+                error,
             )
 
+            if attempt_number >= 4:
+                break
+
+            if _is_rate_limit_error(
+                error
+            ):
+
+                wait_seconds = (
+                    _groq_retry_wait_seconds(
+                        error,
+                        attempt_number,
+                    )
+                )
+
+                print(
+                    "GROQ RATE LIMIT DETECTED."
+                )
+
+                print(
+                    f"LabTwin will automatically wait {wait_seconds:.1f} seconds."
+                )
+
+                print(
+                    "Do not upload the syllabus again while waiting."
+                )
+
+                time.sleep(
+                    wait_seconds
+                )
+
+            else:
+
+                # Short retry for malformed JSON or
+                # temporary non-rate-limit errors.
+                wait_seconds = min(
+                    1.5 *
+                    attempt_number,
+                    5.0,
+                )
+
+                time.sleep(
+                    wait_seconds
+                )
+
+    if (
+        last_error is not None
+        and
+        _is_rate_limit_error(
+            last_error
+        )
+    ):
+
+        raise RuntimeError(
+            "Groq's token limit is still full even after "
+            "LabTwin automatically waited and retried. "
+            "Please wait about one minute and try once."
+        )
+
     raise ValueError(
-        f"Syllabus AI analysis failed after 3 attempts: {last_error}"
+        "Syllabus AI analysis failed after automatic retries. "
+        f"Last error: {last_error}"
     )
 
 
@@ -908,92 +1721,620 @@ Return ONLY JSON:
 # UPLOAD
 # ============================================================
 
+
+def classify_syllabus_execution_mode(
+    text,
+    analysis,
+):
+    """
+    Decide whether LabTwin's current native
+    console runner can meaningfully execute
+    questions from this syllabus.
+
+    This prevents examples such as:
+
+        React/Django syllabus
+              ->
+        falsely classified as Python
+              ->
+        meaningless stdin/base64 question
+
+    Current automatic execution prototype:
+        C console programs
+        Java console programs
+        Python console programs
+
+    Web application labs require a different
+    runtime and are therefore detected instead
+    of being incorrectly converted.
+    """
+
+    analysis = (
+        analysis
+        if isinstance(
+            analysis,
+            dict,
+        )
+        else {}
+    )
+
+
+    language = str(
+        analysis.get(
+            "language",
+            "",
+        )
+    ).strip()
+
+
+    topics = [
+        str(
+            topic
+        )
+
+        for topic in analysis.get(
+            "topics",
+            []
+        )
+    ]
+
+
+    combined = (
+        str(
+            text
+        )
+        +
+        "\n"
+        +
+        "\n".join(
+            topics
+        )
+    ).casefold()
+
+
+    strong_web_markers = (
+        "react",
+        "axios",
+        "fetch api",
+        "django rest framework",
+        "viewset",
+        "viewsets",
+        "cors",
+        "postman",
+        "localstorage",
+        "context api",
+        "global state management",
+        "frontend",
+        "full-stack",
+        "full stack",
+        "token-based authentication",
+        "session authentication",
+        "is_authenticated",
+        "isauthenticated",
+        "netlify",
+        "vercel",
+        "heroku",
+        "api testing",
+    )
+
+
+    hits = [
+        marker
+
+        for marker
+        in strong_web_markers
+
+        if marker
+        in combined
+    ]
+
+
+    obvious_web_stack = (
+        "react"
+        in combined
+
+        or
+
+        "django rest framework"
+        in combined
+
+        or
+
+        (
+            len(
+                hits
+            )
+            >= 3
+        )
+    )
+
+
+    if obvious_web_stack:
+
+        return {
+            "supported":
+                False,
+
+            "mode":
+                "web_fullstack",
+
+            "language":
+                "Web/FullStack",
+
+            "reason":
+                (
+                    "This syllabus is mainly a web/full-stack "
+                    "lab syllabus. LabTwin's current automatic "
+                    "code runner supports C, Java and Python "
+                    "console programs. React/Django/API labs "
+                    "require a browser/server runtime, so "
+                    "LabTwin will not generate a misleading "
+                    "console question from this syllabus."
+                ),
+
+            "detected_markers":
+                hits[:8],
+        }
+
+
+    if language not in [
+        "Python",
+        "Java",
+        "C",
+    ]:
+
+        return {
+            "supported":
+                False,
+
+            "mode":
+                "unsupported",
+
+            "language":
+                language
+                or
+                "Unknown",
+
+            "reason":
+                (
+                    "This syllabus does not map safely to "
+                    "LabTwin's current C, Java or Python "
+                    "console execution environment."
+                ),
+
+            "detected_markers":
+                hits[:8],
+        }
+
+
+    return {
+        "supported":
+            True,
+
+        "mode":
+            "console",
+
+        "language":
+            language,
+
+        "reason":
+            "",
+
+        "detected_markers":
+            hits[:8],
+    }
+
+
+
 @csrf_exempt
 def upload_syllabus(request):
 
     if request.method != "POST":
+
         return JsonResponse(
-            {"error": "POST required"},
-            status=405
+            {
+                "error":
+                    "POST required"
+            },
+            status=405,
         )
 
     try:
-        syllabus_file = request.FILES.get(
-            "syllabus"
+
+        syllabus_file = (
+            request.FILES.get(
+                "syllabus"
+            )
         )
 
         if not syllabus_file:
+
             return JsonResponse(
-                {"error": "Select a syllabus file."},
-                status=400
+                {
+                    "error":
+                        "Select a syllabus file."
+                },
+                status=400,
             )
+
+        student_id = (
+            request.POST.get(
+                "student_id"
+            )
+        )
 
         text = extract_file_text(
             syllabus_file
         )
 
-        analysis = analyze_syllabus_text(
-            text
+        if not text.strip():
+
+            return JsonResponse(
+                {
+                    "error":
+                        "No readable text was found in the syllabus."
+                },
+                status=400,
+            )
+
+
+        # ====================================================
+        # CHECK CACHE
+        # ====================================================
+
+        cache_key = (
+            _syllabus_cache_key(
+                text
+            )
         )
+
+        cache = (
+            _load_syllabus_analysis_cache()
+        )
+
+        analysis = cache.get(
+            cache_key
+        )
+
+        analysis_source = None
+
+
+        if analysis:
+
+            analysis_source = (
+                "analysis_cache"
+            )
+
+            print(
+                "SYLLABUS CACHE HIT:",
+                syllabus_file.name,
+            )
+
+
+        # ====================================================
+        # REUSE EXISTING syllabus_state.json
+        # ====================================================
+
+        if not analysis:
+
+            old_state = load_state()
+
+            old_text = old_state.get(
+                "syllabus_text",
+                "",
+            )
+
+            if old_text:
+
+                old_key = (
+                    _syllabus_cache_key(
+                        old_text
+                    )
+                )
+
+                if (
+                    old_key ==
+                    cache_key
+                    and
+                    (
+                        old_state.get(
+                            "topics"
+                        )
+                        or
+                        old_state.get(
+                            "existing_questions"
+                        )
+                    )
+                ):
+
+                    analysis = {
+                        "language":
+                            old_state.get(
+                                "language",
+                                "Python",
+                            ),
+
+                        "mode":
+                            old_state.get(
+                                "mode",
+                                "topics",
+                            ),
+
+                        "topics":
+                            old_state.get(
+                                "topics",
+                                [],
+                            ),
+
+                        "existing_questions":
+                            old_state.get(
+                                "existing_questions",
+                                [],
+                            ),
+                    }
+
+                    analysis_source = (
+                        "existing_state"
+                    )
+
+                    print(
+                        "REUSING EXISTING SYLLABUS ANALYSIS:",
+                        syllabus_file.name,
+                    )
+
+
+        # ====================================================
+        # AI ONLY IF WE HAVE NEVER ANALYZED THIS SYLLABUS
+        # ====================================================
+
+        if not analysis:
+
+            print(
+                "NEW SYLLABUS - AI ANALYSIS REQUIRED:",
+                syllabus_file.name,
+            )
+
+            analysis = (
+                analyze_syllabus_text(
+                    text
+                )
+            )
+
+            analysis_source = "ai"
+
+
+        # ====================================================
+        # STORE CLEAN ANALYSIS IN CACHE
+        # ====================================================
+
+        cache_analysis = {
+            "language":
+                analysis.get(
+                    "language",
+                    "Python",
+                ),
+
+            "mode":
+                analysis.get(
+                    "mode",
+                    "topics",
+                ),
+
+            "topics":
+                analysis.get(
+                    "topics",
+                    [],
+                ),
+
+            "existing_questions":
+                analysis.get(
+                    "existing_questions",
+                    [],
+                ),
+        }
+
+        cache[
+            cache_key
+        ] = cache_analysis
+
+        _save_syllabus_analysis_cache(
+            cache
+        )
+
+
+        # ====================================================
+        # CREATE ACTIVE SESSION STATE
+        # ====================================================
+
+        # ====================================================
+        # RUNTIME-SCOPE-GUARD
+        # ====================================================
+
+        runtime_support = (
+            classify_syllabus_execution_mode(
+                text,
+                cache_analysis,
+            )
+        )
+
+
+        if not runtime_support[
+            "supported"
+        ]:
+
+            cache_analysis[
+                "language"
+            ] = runtime_support[
+                "language"
+            ]
+
 
         state = default_state()
 
-        state["student_id"] = request.POST.get(
+        state[
+            "execution_mode"
+        ] = runtime_support[
+            "mode"
+        ]
+
+        state[
+            "unsupported_reason"
+        ] = runtime_support[
+            "reason"
+        ]
+
+        state[
+            "execution_supported"
+        ] = runtime_support[
+            "supported"
+        ]
+
+
+
+        state[
             "student_id"
-        )
+        ] = student_id
 
-        state["filename"] = syllabus_file.name
+        state[
+            "filename"
+        ] = syllabus_file.name
 
-        state["syllabus_text"] = text
+        state[
+            "syllabus_text"
+        ] = text
 
-        state["language"] = analysis.get(
-            "language",
-            "Python"
-        )
+        state[
+            "analysis_cache_key"
+        ] = cache_key
 
-        state["mode"] = analysis.get(
-            "mode",
+        state[
+            "language"
+        ] = cache_analysis[
+            "language"
+        ]
+
+        state[
+            "mode"
+        ] = cache_analysis[
+            "mode"
+        ]
+
+        state[
             "topics"
-        )
+        ] = cache_analysis[
+            "topics"
+        ]
 
-        state["topics"] = analysis.get(
-            "topics",
-            []
-        )
+        state[
+            "existing_questions"
+        ] = cache_analysis[
+            "existing_questions"
+        ]
 
-        state["existing_questions"] = analysis.get(
-            "existing_questions",
-            []
+        save_state(
+            state
         )
-
-        save_state(state)
 
         execution_supported = (
-            state["language"]
-            in ["Python", "Java", "C"]
+            runtime_support[
+                "supported"
+            ]
         )
+
 
         return JsonResponse({
-            "success": True,
-            "filename": state["filename"],
-            "language": state["language"],
-            "mode": state["mode"],
-            "topics": state["topics"],
-            "existing_question_count": len(
-                state["existing_questions"]
-            ),
-            "execution_supported": execution_supported
+            "success":
+                True,
+
+            "filename":
+                state[
+                    "filename"
+                ],
+
+            "language":
+                state[
+                    "language"
+                ],
+
+            "mode":
+                state[
+                    "mode"
+                ],
+
+            "topics":
+                state[
+                    "topics"
+                ],
+
+            "existing_question_count":
+                len(
+                    state[
+                        "existing_questions"
+                    ]
+                ),
+
+            "execution_supported":
+                execution_supported,
+
+            "execution_mode":
+                runtime_support[
+                    "mode"
+                ],
+
+            "unsupported_reason":
+                runtime_support[
+                    "reason"
+                ],
+
+            "cached":
+                (
+                    analysis_source
+                    !=
+                    "ai"
+                ),
+
+            "analysis_source":
+                analysis_source,
+
+            "message":
+                (
+                    "Existing syllabus analysis reused."
+                    if analysis_source != "ai"
+                    else
+                    "Syllabus analyzed successfully."
+                ),
         })
 
+
     except Exception as error:
+
         print(
             "UPLOAD ERROR:",
-            error
+            error,
         )
 
+        if _is_rate_limit_error(
+            error
+        ):
+
+            return JsonResponse(
+                {
+                    "error":
+                        "AI token capacity is temporarily full. "
+                        "LabTwin already waited and retried automatically. "
+                        "Please wait about one minute and try once."
+                },
+                status=429,
+            )
+
         return JsonResponse(
-            {"error": str(error)},
-            status=500
+            {
+                "error":
+                    str(
+                        error
+                    )
+            },
+            status=500,
         )
 
 
@@ -1156,6 +2497,645 @@ def next_question(request):
         )
 
 
+
+# ============================================================
+# REQUIRED TOPIC EVIDENCE
+# ============================================================
+
+def check_required_topic_evidence(
+    topic,
+    language,
+    code,
+):
+    """
+    Hidden tests prove OUTPUT correctness.
+
+    This function checks whether the student's code
+    actually demonstrates certain explicit syllabus
+    techniques when the question requires them.
+
+    Example:
+        Topic = Pointer to Function
+
+    A solution that directly calls add(), sub(), etc.
+    may produce perfect output but does NOT demonstrate
+    a function pointer.
+    """
+
+    topic_text = str(
+        topic or ""
+    ).strip()
+
+    topic_key = (
+        topic_text.casefold()
+    )
+
+    language_key = str(
+        language or ""
+    ).strip().casefold()
+
+
+    # Remove C comments so commented-out syntax
+    # cannot satisfy the evidence checker.
+
+    source = re.sub(
+        r"/\*[\s\S]*?\*/",
+        " ",
+        str(
+            code or ""
+        ),
+    )
+
+    source = re.sub(
+        r"//[^\n]*",
+        " ",
+        source,
+    )
+
+
+    result = {
+        "required":
+            False,
+
+        "met":
+            True,
+
+        "topic":
+            topic_text,
+
+        "evidence":
+            "",
+
+        "missing":
+            "",
+    }
+
+
+    # Only deterministic C rules are enabled here.
+    # Unknown/ambiguous topics are NOT penalized.
+
+    if language_key != "c":
+
+        return result
+
+
+    # ========================================================
+    # POINTER TO FUNCTION / FUNCTION POINTER
+    # ========================================================
+
+    if (
+        "pointer to function"
+        in topic_key
+        or
+        "function pointer"
+        in topic_key
+    ):
+
+        result[
+            "required"
+        ] = True
+
+
+        # ----------------------------------------------------
+        # 1. Find typedef function-pointer aliases.
+        #
+        # Example:
+        #
+        # typedef int (*Operation)(int, int);
+        # ----------------------------------------------------
+
+        typedef_aliases = set(
+            re.findall(
+                r"\btypedef\b"
+                r"[^;]*?"
+                r"\(\s*\*\s*"
+                r"([A-Za-z_]\w*)"
+                r"\s*\)"
+                r"\s*\([^;]*\)"
+                r"\s*;",
+                source,
+            )
+        )
+
+
+        pointer_variables = set()
+
+
+        # ----------------------------------------------------
+        # 2. Direct function-pointer declarations.
+        #
+        # Example:
+        #
+        # int (*operation)(int, int);
+        # ----------------------------------------------------
+
+        direct_declarations = re.findall(
+            r"\(\s*\*\s*"
+            r"([A-Za-z_]\w*)"
+            r"\s*\)"
+            r"\s*\([^;{}]*\)",
+            source,
+        )
+
+
+        for name in direct_declarations:
+
+            # A typedef declaration gives us a TYPE name,
+            # not an actual pointer variable.
+            if name not in typedef_aliases:
+
+                pointer_variables.add(
+                    name
+                )
+
+
+        # ----------------------------------------------------
+        # 3. Variables declared using typedef aliases.
+        #
+        # Example:
+        #
+        # Operation operation = NULL;
+        # ----------------------------------------------------
+
+        for alias in typedef_aliases:
+
+            alias_pattern = (
+                rf"\b{re.escape(alias)}"
+                rf"\s+"
+                rf"([A-Za-z_]\w*)"
+                rf"\b"
+            )
+
+
+            for match in re.finditer(
+                alias_pattern,
+                source,
+            ):
+
+                variable = (
+                    match.group(1)
+                )
+
+                pointer_variables.add(
+                    variable
+                )
+
+
+        # ----------------------------------------------------
+        # 4. Verify that an actual function-pointer variable
+        #    is assigned a function AND invoked.
+        # ----------------------------------------------------
+
+        for name in pointer_variables:
+
+            assignment = re.search(
+                rf"\b{re.escape(name)}"
+                rf"\s*=\s*"
+                rf"(?:&\s*)?"
+                rf"(?!NULL\b)"
+                rf"(?!0\b)"
+                rf"([A-Za-z_]\w*)",
+                source,
+            )
+
+
+            direct_call = re.search(
+                rf"\b{re.escape(name)}"
+                rf"\s*\(",
+                source,
+            )
+
+
+            dereferenced_call = re.search(
+                rf"\(\s*\*\s*"
+                rf"{re.escape(name)}"
+                rf"\s*\)"
+                rf"\s*\(",
+                source,
+            )
+
+
+            if (
+                assignment
+                and
+                (
+                    direct_call
+                    or
+                    dereferenced_call
+                )
+            ):
+
+                result[
+                    "met"
+                ] = True
+
+                result[
+                    "evidence"
+                ] = (
+                    "A function-pointer variable is "
+                    "declared directly or through typedef, "
+                    "assigned to a function, and invoked."
+                )
+
+                return result
+
+
+        result[
+            "met"
+        ] = False
+
+        result[
+            "missing"
+        ] = (
+            "The output is correct, but the program "
+            "does not demonstrate a function pointer "
+            "being declared, assigned to an operation, "
+            "and used to call that operation."
+        )
+
+        return result
+
+
+    # ========================================================
+    # POINTER TO POINTER
+    # ========================================================
+
+    if (
+        "pointer to pointer"
+        in topic_key
+    ):
+
+        result[
+            "required"
+        ] = True
+
+        found = bool(
+            re.search(
+                r"\*\s*\*\s*[A-Za-z_]\w*",
+                source,
+            )
+        )
+
+        result[
+            "met"
+        ] = found
+
+        if found:
+
+            result[
+                "evidence"
+            ] = (
+                "Pointer-to-pointer syntax is present."
+            )
+
+        else:
+
+            result[
+                "missing"
+            ] = (
+                "The required pointer-to-pointer "
+                "technique is not demonstrated."
+            )
+
+        return result
+
+
+    # ========================================================
+    # ARRAY OF POINTERS
+    # ========================================================
+
+    if (
+        "array of pointers"
+        in topic_key
+    ):
+
+        result[
+            "required"
+        ] = True
+
+        found = bool(
+            re.search(
+                r"\*\s*[A-Za-z_]\w*"
+                r"\s*\[[^\]]*\]",
+                source,
+            )
+        )
+
+        result[
+            "met"
+        ] = found
+
+        if not found:
+
+            result[
+                "missing"
+            ] = (
+                "The code does not demonstrate "
+                "an array of pointers."
+            )
+
+        return result
+
+
+    # ========================================================
+    # POINTER TO STRUCTURE
+    # ========================================================
+
+    if (
+        "pointer to structure"
+        in topic_key
+    ):
+
+        result[
+            "required"
+        ] = True
+
+        pointer_decl = bool(
+            re.search(
+                r"\bstruct\s+[A-Za-z_]\w*"
+                r"\s*\*\s*[A-Za-z_]\w*",
+                source,
+            )
+        )
+
+        arrow_usage = (
+            "->"
+            in source
+        )
+
+
+        result[
+            "met"
+        ] = (
+            pointer_decl
+            and
+            arrow_usage
+        )
+
+
+        if not result[
+            "met"
+        ]:
+
+            result[
+                "missing"
+            ] = (
+                "The code does not clearly demonstrate "
+                "a structure pointer being used with ->."
+            )
+
+        return result
+
+
+    # ========================================================
+    # DYNAMIC MEMORY
+    # ========================================================
+
+    if (
+        "dynamic memory"
+        in topic_key
+    ):
+
+        result[
+            "required"
+        ] = True
+
+        found = bool(
+            re.search(
+                r"\b(?:malloc|calloc|realloc)\s*\(",
+                source,
+            )
+        )
+
+        result[
+            "met"
+        ] = found
+
+        if not found:
+
+            result[
+                "missing"
+            ] = (
+                "The code produces output without "
+                "demonstrating dynamic memory allocation."
+            )
+
+        return result
+
+
+    # ========================================================
+    # PASSING POINTERS TO FUNCTIONS
+    # ========================================================
+
+    if (
+        "passing pointers to functions"
+        in topic_key
+    ):
+
+        result[
+            "required"
+        ] = True
+
+        found = bool(
+            re.search(
+                r"[A-Za-z_]\w*\s+"
+                r"[A-Za-z_]\w*\s*"
+                r"\([^)]*\*\s*[A-Za-z_]\w*[^)]*\)",
+                source,
+            )
+        )
+
+        result[
+            "met"
+        ] = found
+
+        if not found:
+
+            result[
+                "missing"
+            ] = (
+                "The code does not show a pointer "
+                "being passed as a function parameter."
+            )
+
+        return result
+
+
+    # ========================================================
+    # POINTER ARRAY ACCESS
+    # ========================================================
+
+    if (
+        "accessing array elements using pointers"
+        in topic_key
+    ):
+
+        result[
+            "required"
+        ] = True
+
+        found = bool(
+            re.search(
+                r"\*\s*\(\s*[A-Za-z_]\w*"
+                r"\s*\+\s*[^)]+\)",
+                source,
+            )
+        )
+
+        result[
+            "met"
+        ] = found
+
+        if not found:
+
+            result[
+                "missing"
+            ] = (
+                "The code does not demonstrate "
+                "array access through pointer "
+                "dereferencing."
+            )
+
+        return result
+
+
+    # ========================================================
+    # OPEN / CLOSE FILE
+    # ========================================================
+
+    if (
+        "opening & closing a file"
+        in topic_key
+        or
+        "opening and closing a file"
+        in topic_key
+    ):
+
+        result[
+            "required"
+        ] = True
+
+        found = (
+            bool(
+                re.search(
+                    r"\bfopen\s*\(",
+                    source,
+                )
+            )
+            and
+            bool(
+                re.search(
+                    r"\bfclose\s*\(",
+                    source,
+                )
+            )
+        )
+
+        result[
+            "met"
+        ] = found
+
+        if not found:
+
+            result[
+                "missing"
+            ] = (
+                "The code does not demonstrate both "
+                "opening and closing a file."
+            )
+
+        return result
+
+
+    # ========================================================
+    # FILE READ / WRITE
+    # ========================================================
+
+    if (
+        "writing to and reading from a file"
+        in topic_key
+    ):
+
+        result[
+            "required"
+        ] = True
+
+        found = bool(
+            re.search(
+                r"\b(?:fread|fwrite|fscanf|fprintf|"
+                r"fgets|fputs)\s*\(",
+                source,
+            )
+        )
+
+        result[
+            "met"
+        ] = found
+
+        if not found:
+
+            result[
+                "missing"
+            ] = (
+                "No file read/write operation "
+                "is demonstrated."
+            )
+
+        return result
+
+
+    # ========================================================
+    # SPECIFIC FILE LIBRARY FUNCTIONS
+    # ========================================================
+
+    if (
+        "fseek"
+        in topic_key
+        or
+        "ftell"
+        in topic_key
+        or
+        "fread"
+        in topic_key
+        or
+        "fwrite"
+        in topic_key
+    ):
+
+        result[
+            "required"
+        ] = True
+
+        found = bool(
+            re.search(
+                r"\b(?:fseek|ftell|fread|fwrite)\s*\(",
+                source,
+            )
+        )
+
+        result[
+            "met"
+        ] = found
+
+        if not found:
+
+            result[
+                "missing"
+            ] = (
+                "The required C file-library "
+                "operation is not demonstrated."
+            )
+
+        return result
+
+
+    # Unknown / broad topics remain output-tested only.
+    # This avoids false negatives.
+
+    return result
+
+
+
 # ============================================================
 # ANALYZE
 # ============================================================
@@ -1180,7 +3160,12 @@ def analyze_code(request):
         ).strip()
 
         question = get_current_question(
-            data.get("question_id")
+            data.get(
+                "question_id"
+            ),
+            student_id=data.get(
+                "student_id"
+            ),
         )
 
         if not question:
@@ -1200,24 +3185,167 @@ def analyze_code(request):
             language
         )
 
+        # ==================================================
+        # CONCEPT-EVIDENCE-GUARD
+        # ==================================================
+
+        topic_evidence = (
+            check_required_topic_evidence(
+                question.get(
+                    "topic",
+                    "",
+                ),
+                language,
+                code,
+            )
+        )
+
+
+        if (
+            score == 100
+            and
+            topic_evidence[
+                "required"
+            ]
+            and
+            not topic_evidence[
+                "met"
+            ]
+        ):
+
+            missing_message = (
+                topic_evidence.get(
+                    "missing"
+                )
+                or
+                (
+                    "The required syllabus technique "
+                    "was not demonstrated."
+                )
+            )
+
+
+            return JsonResponse({
+                "test_score":
+                    100,
+
+                "functional_test_score":
+                    100,
+
+                "concept_requirement_met":
+                    False,
+
+                "topic_evidence":
+                    topic_evidence,
+
+                "test_results":
+                    results,
+
+                "diagnosis": {
+
+                    "has_misconception":
+                        True,
+
+                    "concept_key":
+                        question[
+                            "concept_key"
+                        ],
+
+                    "misconception":
+                        missing_message,
+
+                    "error_category":
+                        "topic_concept",
+
+                    "topic_related":
+                        True,
+
+                    "topic_misconception":
+                        missing_message,
+
+                    "explanation":
+                        (
+                            "All hidden output tests passed, "
+                            "but output correctness alone does "
+                            "not prove the required syllabus "
+                            "concept was used. "
+                            +
+                            missing_message
+                        ),
+
+                    "hint":
+                        (
+                            "Keep your working logic, but modify "
+                            "the solution so it explicitly uses "
+                            "the required technique for the topic: "
+                            +
+                            str(
+                                question.get(
+                                    "topic",
+                                    "current topic",
+                                )
+                            )
+                            +
+                            "."
+                        ),
+                },
+            })
+
+
         if score == 100:
 
             return JsonResponse({
-                "test_score": 100,
-                "test_results": results,
+                "test_score":
+                    100,
+
+                "functional_test_score":
+                    100,
+
+                "concept_requirement_met":
+                    True,
+
+                "topic_evidence":
+                    topic_evidence,
+
+                "test_results":
+                    results,
+
                 "diagnosis": {
-                    "has_misconception": False,
-                    "concept_key": question[
-                        "concept_key"
-                    ],
-                    "misconception": None,
-                    "error_category": "none",
-                    "topic_related": False,
-                    "topic_misconception": "",
-                    "explanation": "The solution correctly solves the problem and passes all hidden tests.",
-                    "hint": "No correction is needed."
-                }
+
+                    "has_misconception":
+                        False,
+
+                    "concept_key":
+                        question[
+                            "concept_key"
+                        ],
+
+                    "misconception":
+                        None,
+
+                    "error_category":
+                        "none",
+
+                    "topic_related":
+                        False,
+
+                    "topic_misconception":
+                        "",
+
+                    "explanation":
+                        (
+                            "The solution correctly solves the "
+                            "problem, passes all hidden tests, "
+                            "and satisfies the required topic "
+                            "evidence when a deterministic check "
+                            "is available."
+                        ),
+
+                    "hint":
+                        "No correction is needed.",
+                },
             })
+
 
         task = Task(
             description=f"""
@@ -1636,7 +3764,12 @@ def evaluate_code(request):
         )
 
         question = get_current_question(
-            data.get("question_id")
+            data.get(
+                "question_id"
+            ),
+            student_id=data.get(
+                "student_id"
+            ),
         )
 
         if not question:
@@ -1723,6 +3856,49 @@ def evaluate_code(request):
             question["tests"],
             language
         )
+
+        # ==================================================
+        # RETEST-CONCEPT-EVIDENCE-GUARD
+        # ==================================================
+
+        functional_retest_score = (
+            retest_score
+        )
+
+        retest_topic_evidence = (
+            check_required_topic_evidence(
+                question.get(
+                    "topic",
+                    "",
+                ),
+                language,
+                corrected_code,
+            )
+        )
+
+
+        if (
+            retest_topic_evidence[
+                "required"
+            ]
+            and
+            not retest_topic_evidence[
+                "met"
+            ]
+        ):
+
+            # Functional outputs may all be correct,
+            # but the required technique is still absent.
+            #
+            # Keep the functional score separately while
+            # preventing concept-free code from becoming
+            # mastered.
+
+            retest_score = min(
+                retest_score,
+                67,
+            )
+
 
         task = Task(
             description=f"""
@@ -2023,6 +4199,36 @@ Return ONLY valid JSON:
             if item["rating"] >= 3
         ]
 
+        # CONCEPT-EVIDENCE-FEEDBACK
+
+        if (
+            retest_topic_evidence[
+                "required"
+            ]
+            and
+            not retest_topic_evidence[
+                "met"
+            ]
+        ):
+
+            rubric[
+                "reason"
+            ] = (
+                "Functional output may be correct, but "
+                "the corrected code still does not "
+                "demonstrate the required technique for "
+                f'{question.get("topic", "this topic")}. '
+                +
+                (
+                    retest_topic_evidence.get(
+                        "missing"
+                    )
+                    or
+                    ""
+                )
+            )
+
+
         if retest_score < 80:
             status = "Needs Coding Practice"
 
@@ -2090,6 +4296,17 @@ Return ONLY valid JSON:
 
         return JsonResponse({
             "retest_score": retest_score,
+
+            "functional_retest_score":
+                functional_retest_score,
+
+            "concept_requirement_met":
+                retest_topic_evidence[
+                    "met"
+                ],
+
+            "topic_evidence":
+                retest_topic_evidence,
             "retest_results": retest_results,
             "evaluation": evaluation,
             "initial_score": initial_score,

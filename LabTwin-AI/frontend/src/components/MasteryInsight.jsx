@@ -1,5 +1,21 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
 import "./MasteryInsight.css";
+
+function formatPercent(value) {
+
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return "0";
+  }
+
+  if (Number.isInteger(number)) {
+    return number.toFixed(0);
+  }
+
+  return number.toFixed(1);
+}
+
 
 function clamp(value) {
   const number = Number(value);
@@ -56,7 +72,7 @@ function ScoreRow({
       />
 
       <strong>
-        {Math.round(score)}%
+        {formatPercent(score)}%
       </strong>
 
     </div>
@@ -225,11 +241,7 @@ export default function MasteryInsight({
     firstValue
   ) {
     positives.push(
-      `Coding performance improved from ${Math.round(
-        firstValue
-      )}% to ${Math.round(
-        finalCodeValue
-      )}%.`
+      `Coding performance improved from ${formatPercent(firstValue)}% to ${formatPercent(finalCodeValue)}%.`
     );
   }
 
@@ -238,9 +250,7 @@ export default function MasteryInsight({
     firstValue < 80
   ) {
     limits.push(
-      `The first attempt scored ${Math.round(
-        firstValue
-      )}%, so first-attempt evidence is weaker.`
+      `The first attempt scored ${formatPercent(firstValue)}%, so first-attempt evidence is weaker.`
     );
   }
 
@@ -302,9 +312,7 @@ export default function MasteryInsight({
         <div className="mi-master-score">
 
           <strong>
-            {Math.round(
-              masteryValue
-            )}%
+            {formatPercent(masteryValue)}%
           </strong>
 
           <span>
@@ -346,9 +354,7 @@ export default function MasteryInsight({
 
         <EvidenceItem
           title="Lab Readiness"
-          value={`${Math.round(
-            readinessValue
-          )}%`}
+          value={`${Number(readinessValue).toFixed(1)}%`}
         />
 
       </div>
@@ -370,9 +376,7 @@ export default function MasteryInsight({
 
           {codeImprovement > 0 && (
             <span className="mi-gain">
-              +{Math.round(
-                codeImprovement
-              )}% code improvement
+              +{formatPercent(codeImprovement)}% code improvement
             </span>
           )}
 
@@ -386,9 +390,9 @@ export default function MasteryInsight({
         />
 
         <ScoreRow
-          label="Final / Retest Code"
+          label="Final Code"
           value={finalCodeValue}
-          description="Hidden-test performance after correction"
+          description="Hidden-test performance of the submitted final code"
         />
 
       </div>
@@ -475,9 +479,7 @@ export default function MasteryInsight({
             </span>
 
             <strong>
-              {Math.round(
-                hintIndependence
-              )}%
+              {formatPercent(hintIndependence)}%
             </strong>
 
           </div>
@@ -567,7 +569,7 @@ export default function MasteryInsight({
 
           <div>
             <strong>15%</strong>
-            <span>Final / corrected code</span>
+            <span>Final code</span>
           </div>
 
           <div>
@@ -605,9 +607,7 @@ export default function MasteryInsight({
         {
           showExplanation
             ? "Hide Mastery Explanation"
-            : `Why ${Math.round(
-                masteryValue
-              )}%?`
+            : `Why ${formatPercent(masteryValue)}%?`
         }
       </button>
 
@@ -695,9 +695,7 @@ export default function MasteryInsight({
           <div>
 
             <strong>
-              {Math.round(
-                firstValue
-              )}%
+              {formatPercent(firstValue)}%
             </strong>
 
             <span>
@@ -715,9 +713,7 @@ export default function MasteryInsight({
           <div>
 
             <strong>
-              {Math.round(
-                finalCodeValue
-              )}%
+              {formatPercent(finalCodeValue)}%
             </strong>
 
             <span>
@@ -735,9 +731,7 @@ export default function MasteryInsight({
           <div>
 
             <strong>
-              {Math.round(
-                vivaValue
-              )}%
+              {formatPercent(vivaValue)}%
             </strong>
 
             <span>
@@ -755,9 +749,7 @@ export default function MasteryInsight({
           <div className="mi-final-step">
 
             <strong>
-              {Math.round(
-                masteryValue
-              )}%
+              {formatPercent(masteryValue)}%
             </strong>
 
             <span>
