@@ -4,6 +4,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from crewai import Agent, Task, Crew, Process
+from .ai_retry import kickoff_with_retry
 
 from .views import (
     llm,
@@ -229,7 +230,7 @@ Return ONLY valid JSON:
             )
 
             result = clean_json_output(
-                crew.kickoff().raw
+                kickoff_with_retry(crew, label="hint_views.py").raw
             )
 
             hint = str(

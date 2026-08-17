@@ -8,6 +8,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from crewai import Agent, Task, Crew, Process
+from .ai_retry import kickoff_with_retry
 
 from .models import StudentProfile, ConceptProgress, TopicProgress, Attempt
 
@@ -1509,7 +1510,7 @@ Return ONLY valid JSON:
 
 
                 result = (
-                    fresh_crew.kickoff()
+                    kickoff_with_retry(fresh_crew, label="adaptive_views.py")
                 )
 
 

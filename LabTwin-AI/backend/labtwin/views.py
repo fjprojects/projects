@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from pypdf import PdfReader
 
 from crewai import Agent, Task, Crew, Process, LLM
+from .ai_retry import kickoff_with_retry
 
 import crewai.llms.cache as _crewai_cache
 _crewai_cache.mark_cache_breakpoint = lambda message: message
@@ -1143,7 +1144,7 @@ Return ONLY valid JSON:
                 f"SYLLABUS AI attempt {attempt_number}/4..."
             )
 
-            result = crew.kickoff()
+            result = kickoff_with_retry(crew, label="views.py")
 
             raw = getattr(
                 result,
@@ -1605,7 +1606,7 @@ OTHER
     )
 
     return clean_json_output(
-        crew.kickoff().raw
+        kickoff_with_retry(crew, label="views.py").raw
     )
 
 
@@ -1713,7 +1714,7 @@ Return ONLY JSON:
     )
 
     return clean_json_output(
-        crew.kickoff().raw
+        kickoff_with_retry(crew, label="views.py").raw
     )
 
 
@@ -3413,7 +3414,7 @@ Return ONLY JSON:
         )
 
         diagnosis = clean_json_output(
-            crew.kickoff().raw
+            kickoff_with_retry(crew, label="views.py").raw
         )
 
         diagnosis[
@@ -4036,7 +4037,7 @@ Return ONLY valid JSON:
             )
 
             result = clean_json_output(
-                crew.kickoff().raw
+                kickoff_with_retry(crew, label="views.py").raw
             )
 
             if not isinstance(result, dict):
@@ -4496,7 +4497,7 @@ Return ONLY valid JSON:
         )
 
         rubric = clean_json_output(
-            crew.kickoff().raw
+            kickoff_with_retry(crew, label="views.py").raw
         )
 
         dimensions = rubric.get(
