@@ -3693,6 +3693,50 @@ Return ONLY JSON:
             topic_related = True
 
 
+        # --------------------------------------------------
+        # POINTER ARITHMETIC EVIDENCE RECONCILIATION
+        #
+        # Examples:
+        #   a + n - 2 instead of a + n - 1
+        #   wrong left/right pointer movement
+        #   incorrect pointer increment/decrement
+        # --------------------------------------------------
+
+        if (
+            topic_name == "pointer arithmetic"
+            and
+            category in {
+                "algorithm_logic",
+                "topic_concept",
+                "runtime_memory",
+            }
+            and
+            "pointer" in diagnosis_text
+            and
+            any(
+                signal in diagnosis_text
+                for signal in (
+                    "right pointer",
+                    "left pointer",
+                    "pointer starts",
+                    "pointer start",
+                    "pointer position",
+                    "last element",
+                    "first element",
+                    "a +",
+                    "a+",
+                    "n - 1",
+                    "n-1",
+                    "n - 2",
+                    "n-2",
+                    "increment",
+                    "decrement",
+                    "offset",
+                )
+            )
+        ):
+            topic_related = True
+
         diagnosis[
             "topic_related"
         ] = topic_related
