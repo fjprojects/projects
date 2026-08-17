@@ -1470,17 +1470,6 @@ function App() {
               Start New Session
             </button>
 
-            <button
-              type="button"
-              disabled={
-                !studentName.trim()
-              }
-              onClick={() =>
-                startStudent("continue")
-              }
-            >
-              Continue Previous Progress
-            </button>
 
           </div>
 
