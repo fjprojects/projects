@@ -4183,7 +4183,7 @@ Return ONLY valid JSON:
         # weakness such as overflow, initialization, etc.
         # ----------------------------------------------------
 
-        if misconception and not passed_code:
+        if misconception and not locals().get("passed_code", False):
 
             viva_question = (
                 "In "
