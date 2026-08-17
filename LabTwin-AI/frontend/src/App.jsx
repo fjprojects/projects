@@ -726,7 +726,15 @@ function App() {
 
           `${API}/adaptive-next-question/`,
 
-          { student_id: student?.student_id }
+          {
+            student_id: student?.student_id,
+
+            required_topic:
+              evaluation &&
+              evaluation?.evaluation?.status !== "Mastered"
+                ? question?.topic
+                : null,
+          }
 
         );
 

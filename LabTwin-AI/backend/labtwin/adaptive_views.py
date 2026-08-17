@@ -1850,6 +1850,15 @@ def adaptive_next_question(request):
             "student_id"
         )
 
+        # Exact topic requested by the completed learning cycle.
+        # Used when the previous topic still needs independent verification.
+        required_topic = str(
+            data.get(
+                "required_topic",
+                ""
+            ) or ""
+        ).strip()
+
 
         state = (
             load_student_snapshot(
@@ -2113,12 +2122,53 @@ def adaptive_next_question(request):
 
         else:
 
+            # ==================================================
+            # EXACT INDEPENDENT VERIFICATION TOPIC
+            # ==================================================
+
+            generation_topics = state.get(
+                "topics",
+                []
+            )
+
+            canonical_required_topic = ""
+
+            if required_topic:
+
+                for syllabus_topic in generation_topics:
+
+                    if (
+                        str(syllabus_topic).strip().casefold()
+                        == required_topic.casefold()
+                    ):
+
+                        canonical_required_topic = str(
+                            syllabus_topic
+                        ).strip()
+
+                        break
+
+
+                if not canonical_required_topic:
+
+                    raise ValueError(
+                        f'Required verification topic "{required_topic}" '
+                        "does not belong to the active syllabus."
+                    )
+
+
+                # A report requesting verification MUST generate
+                # another question on this exact same topic.
+                generation_topics = [
+                    canonical_required_topic
+                ]
+
+                is_verification = True
+
+
             generated = generate_adaptive_question(
 
-                state.get(
-                    "topics",
-                    []
-                ),
+                generation_topics,
 
                 history,
 
@@ -2159,6 +2209,60 @@ def adaptive_next_question(request):
             generated_key = (
                 generated_topic.casefold()
             )
+
+
+            # During independent verification, merely belonging to
+            # the syllabus is not enough. It must be the SAME topic.
+            if (
+                canonical_required_topic
+                and generated_key
+                != canonical_required_topic.casefold()
+            ):
+
+                print(
+                    "REJECTED WRONG VERIFICATION TOPIC:",
+                    generated_topic,
+                    "EXPECTED:",
+                    canonical_required_topic,
+                )
+
+                generated = (
+                    build_local_fallback_question(
+                        [
+                            canonical_required_topic
+                        ],
+                        history,
+                        language,
+                        weak_concept,
+                    )
+                )
+
+                generated_topic = str(
+                    generated.get(
+                        "topic",
+                        canonical_required_topic
+                    )
+                ).strip()
+
+                generated_key = (
+                    generated_topic.casefold()
+                )
+
+
+                if (
+                    generated_key
+                    != canonical_required_topic.casefold()
+                ):
+
+                    raise ValueError(
+                        "Independent verification question "
+                        "could not be generated on the exact required topic."
+                    )
+
+
+                generated[
+                    "topic"
+                ] = canonical_required_topic
 
 
             if (
