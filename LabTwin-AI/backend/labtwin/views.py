@@ -3451,6 +3451,71 @@ Return ONLY JSON:
             )
         )
 
+        # ==================================================
+        # DETERMINISTIC TOPIC-RELATION RECONCILIATION
+        #
+        # An algorithmic mistake can still be evidence about
+        # the selected syllabus topic.
+        #
+        # Example:
+        # Topic = Arrays
+        # Mistake = wrong array index during traversal/reversal
+        #
+        # Keep error_category = algorithm_logic, but mark the
+        # misconception as topic-related.
+        # ==================================================
+
+        topic_name = str(
+            question.get(
+                "topic",
+                ""
+            )
+            or ""
+        ).strip().lower()
+
+        diagnosis_text = " ".join([
+            str(
+                diagnosis.get(
+                    "misconception",
+                    ""
+                )
+                or ""
+            ),
+            str(
+                diagnosis.get(
+                    "explanation",
+                    ""
+                )
+                or ""
+            ),
+        ]).lower()
+
+        if (
+            topic_name == "arrays"
+            and
+            category == "algorithm_logic"
+            and
+            any(
+                signal in diagnosis_text
+                for signal in (
+                    "array index",
+                    "array indices",
+                    "index 0",
+                    "index 1",
+                    "n-1",
+                    "n - 1",
+                    "n-2",
+                    "n - 2",
+                    "last element",
+                    "first element",
+                    "array element",
+                    "travers",
+                    "reverse"
+                )
+            )
+        ):
+            topic_related = True
+
         diagnosis[
             "topic_related"
         ] = topic_related
