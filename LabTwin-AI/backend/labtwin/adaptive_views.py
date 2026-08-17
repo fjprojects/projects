@@ -1312,6 +1312,20 @@ THIS IS THE ONLY ALLOWED TOPIC FOR THIS QUESTION.
 The programming problem must primarily test this exact topic.
 Do not use another syllabus topic as the main skill.
 
+IMPORTANT SYLLABUS-SCOPE RULE:
+Do NOT introduce an algorithm, technique, data structure, or advanced concept
+that is not explicitly present in the uploaded syllabus.
+
+For broad introductory topics, generate a direct college-lab exercise.
+
+Examples:
+- Arrays: sum, minimum/maximum, reverse, count, search, direct traversal.
+  Do NOT require Kadane's algorithm, advanced sorting, dynamic programming,
+  sliding window, prefix sums, or another unstated algorithm.
+- Strings: direct character/string processing.
+- Functions: require defining and calling functions.
+- Pointers: require genuine pointer access or pointer arithmetic.
+
 PREVIOUS QUESTIONS:
 
 {json.dumps(previous_questions, indent=2)}
