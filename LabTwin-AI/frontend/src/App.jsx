@@ -2090,6 +2090,15 @@ function App() {
                 problem={
                   question?.problem || ""
                 }
+                questionId={
+                  question?.id || ""
+                }
+                language={
+                  question?.language || ""
+                }
+                topic={
+                  question?.topic || ""
+                }
                 conceptKey={
                   analysis?.diagnosis?.concept_key ||
                   question?.concept_key ||
@@ -2100,6 +2109,7 @@ function App() {
                   ""
                 }
                 firstHint={
+                  analysis?.diagnosis?.hint ||
                   tutor.hint
                 }
                 initialLevel={

@@ -3815,6 +3815,27 @@ Return ONLY valid JSON:
             )
 
 
+        # ----------------------------------------------------
+        # FINAL DIAGNOSIS GROUNDING
+        #
+        # The viva must verify the mistake actually diagnosed
+        # from the student's code. It must not invent another
+        # weakness such as overflow, initialization, etc.
+        # ----------------------------------------------------
+
+        if misconception:
+
+            viva_question = (
+                "In "
+                + language
+                + ", explain why this diagnosed "
+                + topic
+                + " mistake causes incorrect output and how "
+                + "you would correct the relevant logic: "
+                + misconception
+            )
+
+
         return JsonResponse({
             "hint":
                 hint,

@@ -12,6 +12,9 @@ const API = API_BASE;
 
 function ProgressiveHints({
   problem,
+  questionId,
+  language,
+  topic,
   conceptKey,
   misconception,
   firstHint,
@@ -53,6 +56,18 @@ function ProgressiveHints({
           {
             problem:
               problem,
+
+            question_id:
+              questionId,
+
+            language:
+              language,
+
+            topic:
+              topic,
+
+            current_hint:
+              hint,
 
             concept_key:
               conceptKey,

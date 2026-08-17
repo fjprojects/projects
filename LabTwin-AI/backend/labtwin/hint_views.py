@@ -253,6 +253,38 @@ Return ONLY valid JSON:
             hint = fallback
 
 
+        # ----------------------------------------------------
+        # DIAGNOSIS-LOCKED PROGRESSIVE HINTS
+        #
+        # Prevent the next hint from inventing a different bug.
+        # Each level becomes more actionable while remaining
+        # focused on the exact misconception already detected.
+        # ----------------------------------------------------
+
+        if misconception:
+
+            if level == 2:
+
+                hint = (
+                    "Focus only on the diagnosed mistake: "
+                    + misconception
+                    + " Trace the exact statement or loop "
+                    + "responsible and compare it with what "
+                    + "the problem requires."
+                )
+
+            else:
+
+                hint = (
+                    "Correct only the logic identified in "
+                    + "this diagnosis: "
+                    + misconception
+                    + " Then dry-run the smallest failing "
+                    + "input and confirm that every required "
+                    + "value or condition is handled."
+                )
+
+
         # Prevent cross-language leakage.
 
         if language.lower() == "c":
