@@ -1303,9 +1303,14 @@ PROGRAMMING LANGUAGE:
 
 {language}
 
-UPLOADED SYLLABUS TOPICS:
+EXACT SELECTED SYLLABUS TOPIC:
 
-{json.dumps(topics, indent=2)}
+{topics[0] if topics else ""}
+
+THIS IS THE ONLY ALLOWED TOPIC FOR THIS QUESTION.
+
+The programming problem must primarily test this exact topic.
+Do not use another syllabus topic as the main skill.
 
 PREVIOUS QUESTIONS:
 
@@ -1319,8 +1324,9 @@ STRICT RULES:
 
 1. Stay strictly inside the uploaded syllabus.
 2. Use exactly the detected programming language: {language}.
-3. The question must DIRECTLY test the selected topic.
-3A. The selected syllabus topic must be the PRIMARY SKILL required to solve the problem, not merely something that appears incidentally in the code.
+3. The question must DIRECTLY test "{topics[0] if topics else ""}".
+3A. "{topics[0] if topics else ""}" must be the PRIMARY SKILL required to solve the problem, not merely something that appears incidentally in the code.
+3B. The returned "topic" field MUST exactly equal "{topics[0] if topics else ""}".
 3B. Example: Java Program Structure must test class Main, main method/entry point/imports/program layout. Do NOT label a conditionals, switch, loops, arrays, or short-circuiting problem as Java Program Structure.
 4. Never create a "{language} adaptation" of a concept from
    another programming language.
@@ -2164,6 +2170,125 @@ def adaptive_next_question(request):
                 ]
 
                 is_verification = True
+
+
+            # ==================================================
+            # ONE-TOPIC GENERATION GUARD
+            # ==================================================
+            # For ordinary questions, choose ONE syllabus topic
+            # before asking the AI to create the problem.
+            #
+            # This prevents cases such as:
+            # Topic = Character Set
+            # Problem = pointer/array problem
+
+            if not canonical_required_topic:
+
+                all_topics = [
+                    str(topic).strip()
+                    for topic in generation_topics
+                    if str(topic).strip()
+                ]
+
+                if not all_topics:
+
+                    raise ValueError(
+                        "No valid syllabus topics are available."
+                    )
+
+
+                used_topics = {
+                    str(
+                        item.get(
+                            "topic",
+                            ""
+                        )
+                    ).strip().casefold()
+
+                    for item in history
+
+                    if isinstance(
+                        item,
+                        dict
+                    )
+                    and str(
+                        item.get(
+                            "topic",
+                            ""
+                        )
+                    ).strip()
+                }
+
+
+                # Prefer topics that produce strong,
+                # executable programming-lab demonstrations.
+                preferred_topics = [
+                    "Arrays",
+                    "Functions",
+                    "Pointers",
+                    "Strings",
+                    "Bitwise Operators",
+                    "Function Pointers",
+                    "File Handling",
+                ]
+
+
+                target_topic = None
+
+
+                # First try preferred practical topics.
+                for preferred in preferred_topics:
+
+                    for syllabus_topic in all_topics:
+
+                        if (
+                            syllabus_topic.casefold()
+                            == preferred.casefold()
+                            and syllabus_topic.casefold()
+                            not in used_topics
+                        ):
+
+                            target_topic = (
+                                syllabus_topic
+                            )
+
+                            break
+
+                    if target_topic:
+                        break
+
+
+                # Then use the next untested syllabus topic.
+                if not target_topic:
+
+                    for syllabus_topic in all_topics:
+
+                        if (
+                            syllabus_topic.casefold()
+                            not in used_topics
+                        ):
+
+                            target_topic = (
+                                syllabus_topic
+                            )
+
+                            break
+
+
+                # If every topic has evidence, safely reuse
+                # one syllabus topic instead of leaving scope open.
+                if not target_topic:
+
+                    target_topic = (
+                        all_topics[0]
+                    )
+
+
+                # CRITICAL:
+                # The LLM sees ONLY this topic.
+                generation_topics = [
+                    target_topic
+                ]
 
 
             generated = generate_adaptive_question(
