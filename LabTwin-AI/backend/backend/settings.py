@@ -2,17 +2,32 @@
 Django settings for backend project.
 """
 
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-6@zl^s!lt3+hayej1x&xyvp7aubcgr%-kb0p&w-uw+zx^fo)'
+if os.getenv("RENDER"):
+    SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
+else:
+    SECRET_KEY = os.getenv(
+        "DJANGO_SECRET_KEY",
+        "django-insecure-local-development-only"
+    )
+DEBUG = os.getenv("RENDER") is None
+_render_host = os.getenv(
+    "RENDER_EXTERNAL_HOSTNAME"
+)
 
-DEBUG = True
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+]
 
-ALLOWED_HOSTS = []
-
-
+if _render_host:
+    ALLOWED_HOSTS.append(
+        _render_host
+    )
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -104,10 +119,34 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
+_frontend_url = os.getenv(
+    "FRONTEND_URL",
+    ""
+).rstrip("/")
+
 CORS_ALLOWED_ORIGINS = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
+
+if _frontend_url:
+    CORS_ALLOWED_ORIGINS.append(
+        _frontend_url
+    )
+
+CSRF_TRUSTED_ORIGINS = []
+
+if _frontend_url:
+    CSRF_TRUSTED_ORIGINS.append(
+        _frontend_url
+    )
 
 
 CORS_ALLOW_CREDENTIALS = True
+
+
+# Render terminates HTTPS before forwarding traffic to Django.
+SECURE_PROXY_SSL_HEADER = (
+    "HTTP_X_FORWARDED_PROTO",
+    "https"
+)

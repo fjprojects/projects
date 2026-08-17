@@ -1,0 +1,11 @@
+﻿Django>=6.0,<6.1
+django-cors-headers
+crewai==1.15.14
+groq
+python-dotenv
+pydantic==2.12.5
+pypdf
+gunicorn
+litellm==1.96.0
+numpy==2.5.1
+tokenizers==0.23.1

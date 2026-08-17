@@ -6,7 +6,10 @@ import LearningIntelligence from "./components/LearningIntelligence";
 import ProgressiveHints from "./ProgressiveHints";
 import MasteryInsight from "./components/MasteryInsight";
 
-const API = "http://127.0.0.1:8000/api";
+const API = (
+  import.meta.env.VITE_API_URL ||
+  "http://127.0.0.1:8000/api"
+).replace(/\/$/, "");
 
 
 function App() {
@@ -1356,6 +1359,18 @@ function App() {
     <div className="app">
 
 
+      <div
+        className={
+          `topWorkspace ${
+            student
+              ? "studentWorkspace"
+              : "startWorkspace"
+          }`
+        }
+      >
+
+        <aside className="leftRail">
+
       <div className="header">
 
         <h1>
@@ -1484,7 +1499,1227 @@ function App() {
 
       )}
 
+
+
+        </aside>
+
+        <main className="mainRail">
+
       {/* ================================================= */}
+      {/* SYLLABUS */}
+      {/* ================================================= */}
+
+      {student && (
+
+        <div className="card">
+
+
+          <h2>
+            Syllabus
+          </h2>
+
+
+          <p className="syllabusHelpText">
+            LabTwin will use the current syllabus unless you choose a new one.
+          </p>
+
+
+          <input
+
+            type="file"
+
+            accept=".pdf,.txt"
+
+            onChange={(e) =>
+              setFile(
+                e.target.files[0]
+              )
+            }
+
+          />
+
+
+          <button
+            onClick={
+              uploadSyllabus
+            }
+            disabled={
+              loading ||
+              !file
+            }
+          >
+
+            {
+              loading
+                ? "Analyzing..."
+                : "Upload / Replace Syllabus"
+            }
+
+          </button>
+
+
+          {syllabus && (
+
+            <div
+              style={{
+                marginTop: "20px"
+              }}
+            >
+
+              <p>
+                {
+                  syllabus.filename
+                }
+              </p>
+
+
+              <p>
+
+                <strong>
+                  Mode:
+                </strong>{" "}
+
+                {
+                  syllabus.mode ===
+                  "existing_questions"
+
+                    ? "Existing questions detected"
+
+                    : "Questions generated from syllabus topics"
+                }
+
+              </p>
+
+
+              <p>
+
+                <strong>
+                  Topics:
+                </strong>{" "}
+
+                {
+                  syllabus.topics?.join(
+                    ", "
+                  )
+                }
+
+              </p>
+
+
+              {
+                syllabus.mode ===
+                "existing_questions"
+                && (
+
+                  <p>
+
+                    Questions found:{" "}
+
+                    {
+                      syllabus.existing_question_count
+                    }
+
+                  </p>
+
+                )
+              }
+
+            </div>
+
+          )}
+
+
+        </div>
+
+      )}
+
+
+      {/* ================================================= */}
+      {/* QUESTION */}
+      {/* ================================================= */}
+
+      {question && (
+
+        <div className="card">
+
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent:
+                "space-between",
+              alignItems: "center",
+              gap: "20px"
+            }}
+          >
+
+
+            <div>
+
+              <h2>
+
+                Question {
+                  question.question_number
+                }
+
+              </h2>
+
+
+              <p>
+
+                {
+                  question.is_verification
+
+                    ? "Independent verification of your current weak topic"
+
+                    : question.source ===
+                      "syllabus"
+
+                      ? "From uploaded syllabus"
+
+                      : "Generated from syllabus topic"
+                }
+
+              </p>
+
+            </div>
+
+
+            <button
+              onClick={
+                nextQuestion
+              }
+              disabled={
+                loading
+              }
+            >
+
+              Next Question
+
+            </button>
+
+          </div>
+
+
+          <div className="questionMetaRow">
+            <div className="questionMetaItem">
+              <span className="questionMetaLabel">
+                Programming Language:
+              </span>
+          
+              <span className="questionMetaValue">
+                {question.language}
+              </span>
+            </div>
+          
+            <div className="questionMetaItem">
+              <span className="questionMetaLabel">
+                Topic:
+              </span>
+          
+              <span className="questionMetaValue">
+                {question.topic}
+              </span>
+            </div>
+          </div>
+
+
+          {question.language === "C" && (
+
+            <div className="adaptiveBox">
+
+              <strong>
+                C question detected
+              </strong>
+
+              <p>
+                LabTwin detected a C programming concept.
+                Your C code will be compiled using GCC and tested automatically.
+              </p>
+
+            </div>
+
+          )}
+
+
+
+
+          <h3>
+            Programming Problem
+          </h3>
+
+
+          <div
+            className="problemText markdownProblem"
+          >
+            <ReactMarkdown>
+              {
+                String(
+                  question.problem || ""
+                ).replace(
+                  /\\n/g,
+                  "\n"
+                )
+              }
+            </ReactMarkdown>
+          </div>
+
+
+          <h3>
+            Your Code
+          </h3>
+
+
+          <textarea
+
+            value={
+              code
+            }
+
+            onChange={(e) =>
+              setCode(
+                e.target.value
+              )
+            }
+
+            placeholder={
+              `Write your ${question?.language || "programming"} code here...`
+            }
+
+          />
+
+
+          <button
+            onClick={
+              analyzeCode
+            }
+            disabled={
+              loading ||
+              !code.trim() ||
+              question?.execution_supported === false
+            }
+          >
+
+            {
+              loading
+                ? "Working..."
+                : "Analyze Code"
+            }
+
+          </button>
+
+
+        </div>
+
+      )}
+
+
+      {/* ================================================= */}
+      {/* ANALYSIS */}
+      {/* ================================================= */}
+
+      {analysis && (
+
+        <div className="card">
+
+
+          <h2>
+            Code Analysis
+          </h2>
+
+
+          <h3>
+
+            Initial Test Score:{" "}
+
+            {
+              analysis.test_score
+            }%
+
+          </h3>
+
+
+          <h3>
+            Hidden Test Cases
+          </h3>
+
+
+          {
+            analysis
+              .test_results
+              .map(
+                (test) => (
+
+                  <p
+                    key={
+                      test.test
+                    }
+                  >
+
+                    Test {
+                      test.test
+                    }:{" "}
+
+                    {
+                      test.passed
+                        ? "PASS"
+                        : "FAIL"
+                    }
+
+                  </p>
+
+                )
+              )
+          }
+
+
+
+          <h3>
+            Misconception
+          </h3>
+
+
+          <p>
+
+            {
+              analysis
+                .diagnosis
+                .misconception
+              ||
+              "No misconception detected"
+            }
+
+          </p>
+
+          {analysis.diagnosis.has_misconception && (
+            <>
+              <h3>Error Classification</h3>
+              <p>
+                {analysis.diagnosis.error_category || "other"}
+              </p>
+
+              <h3>Evidence About This Topic</h3>
+              <p>
+                {analysis.diagnosis.topic_related
+                  ? `Topic-related misconception: ${analysis.diagnosis.topic_misconception || analysis.diagnosis.misconception}`
+                  : `This coding error is not evidence of a weakness in ${question?.topic}.`}
+              </p>
+            </>
+          )}
+
+
+          <h3>
+            Explanation
+          </h3>
+
+
+          <p>
+
+            {
+              analysis
+                .diagnosis
+                .explanation
+            }
+
+          </p>
+
+
+          
+          {
+            analysis?.diagnosis?.hint &&
+            analysis.diagnosis.hint
+              .trim()
+              .toLowerCase() !==
+                "no correction is needed."
+            && (
+              <>
+                <h3>
+                  Hint
+                </h3>
+
+                <p>
+                  {
+                    analysis
+                      .diagnosis
+                      .hint
+                  }
+                </p>
+              </>
+            )
+          }
+
+
+        </div>
+
+      )}
+
+
+      {/* ================================================= */}
+      {/* MASTERED */}
+      {/* ================================================= */}
+
+      {mastered && (
+
+        <div className="card report">
+
+
+          <h2>
+            Current Problem Mastered
+          </h2>
+
+
+          <p>
+            All hidden tests passed.
+          </p>
+
+
+          <div className="reportGrid">
+
+
+            <div>
+
+              <span>
+                Test Score
+              </span>
+
+              <strong>
+                100%
+              </strong>
+
+            </div>
+
+
+            <div>
+
+              <span>
+                Status
+              </span>
+
+              <strong>
+                Mastered
+              </strong>
+
+            </div>
+
+
+            <div>
+
+              <span>
+                Retest Required
+              </span>
+
+              <strong>
+                No
+              </strong>
+
+            </div>
+
+
+            <div>
+
+              <span>
+                Readiness
+              </span>
+
+              <strong>
+                100%
+              </strong>
+
+            </div>
+
+
+          </div>
+
+
+          <br />
+
+
+          <button
+            onClick={
+              nextQuestion
+            }
+            disabled={
+              loading
+            }
+          >
+
+            {loading ? "Generating..." : "Next Question"}
+
+          </button>
+
+
+        </div>
+
+      )}
+
+
+      {/* ================================================= */}
+      {/* TUTOR */}
+      {/* ================================================= */}
+
+      {tutor && (
+
+        <div className="card">
+
+
+          <h2>
+            {
+              (analysis?.test_score === 100 &&
+                analysis?.concept_requirement_met !== false)
+                ? "Concept Verification"
+                : "Adaptive Tutor"
+            }
+          </h2>
+
+
+          {!(analysis?.test_score === 100 &&
+                analysis?.concept_requirement_met !== false) && (
+
+            <>
+
+              <ProgressiveHints
+                problem={
+                  question?.problem || ""
+                }
+                conceptKey={
+                  analysis?.diagnosis?.concept_key ||
+                  question?.concept_key ||
+                  "OTHER"
+                }
+                misconception={
+                  analysis?.diagnosis?.misconception ||
+                  ""
+                }
+                firstHint={
+                  tutor.hint
+                }
+                initialLevel={
+                  1
+                }
+                onLevelChange={
+                  setHintLevelUsed
+                }
+              />
+
+
+              <h3>
+                Practice Problem
+              </h3>
+
+
+              <p>
+                {
+                  tutor.practice_problem
+                }
+              </p>
+
+            </>
+
+          )}
+
+
+          {(analysis?.test_score === 100 &&
+                analysis?.concept_requirement_met !== false) && (
+
+            <p>
+              Your code passed independently. LabTwin is now checking whether you understand the exact concept before marking the topic as mastered.
+            </p>
+
+          )}
+
+
+          <h3>
+            Viva Question
+          </h3>
+
+
+          <p>
+            {
+              tutor.viva_question
+            }
+          </p>
+
+
+          <h3>
+            {
+              (analysis?.test_score === 100 &&
+                analysis?.concept_requirement_met !== false)
+                ? "Your Verified Code"
+                : "Correct Your Code"
+            }
+          </h3>
+
+
+          <textarea
+
+            value={
+              correctedCode
+            }
+
+            onChange={(e) =>
+              setCorrectedCode(
+                e.target.value
+              )
+            }
+
+            placeholder={
+              `Enter ${question?.language || "programming"} code...`
+            }
+
+          />
+
+
+          <h3>
+            Your Viva Answer
+          </h3>
+
+
+          <textarea
+
+            value={
+              vivaAnswer
+            }
+
+            onChange={(e) =>
+              setVivaAnswer(
+                e.target.value
+              )
+            }
+
+            placeholder={
+              "Explain the concept in your own words..."
+            }
+
+          />
+
+
+          <button
+
+            onClick={
+              evaluateCode
+            }
+
+            disabled={
+              loading ||
+              !correctedCode.trim() ||
+              !vivaAnswer.trim()
+            }
+
+          >
+
+            {
+              (analysis?.test_score === 100 &&
+                analysis?.concept_requirement_met !== false)
+                ? "Verify Understanding"
+                : "Evaluate Improvement"
+            }
+
+          </button>
+
+
+        </div>
+
+      )}
+
+
+      {/* ================================================= */}
+      {/* FINAL */}
+      {/* ================================================= */}
+
+      {evaluation && (
+
+        <div className="card report">
+
+
+          <h2>
+            LabTwin Final Report
+          </h2>
+
+          {/* FINAL_REPORT_SIMPLE_SUMMARY */}
+
+          <div
+            style={{
+              margin: "12px 0 20px",
+              padding: "14px 16px",
+              borderRadius: "12px",
+              background: "rgba(0,0,0,0.035)"
+            }}
+          >
+
+            <strong>
+              {question?.topic || "Current Topic"}
+            </strong>
+
+            <p
+              style={{
+                marginTop: "5px"
+              }}
+            >
+              {
+                evaluation?.evaluation?.status === "Mastered"
+                  ? "Topic mastered. You can move to another syllabus topic."
+                  : "More evidence is needed before this topic is mastered."
+              }
+            </p>
+
+            <p
+              style={{
+                marginTop: "5px",
+                fontSize: "0.9em"
+              }}
+            >
+              Independent Verification:{" "}
+              <strong>
+                {
+                  evaluation
+                    ?.topic_progress
+                    ?.verification_passed
+                    ? "PASSED"
+                    : "PENDING"
+                }
+              </strong>
+            </p>
+
+          </div>
+
+
+          <div className="reportGrid">
+
+
+            <div>
+
+              <span>
+                Final Code Score
+              </span>
+
+              <strong>
+                {
+                  evaluation
+                    .retest_score
+                }%
+              </strong>
+
+            </div>
+
+
+            <div>
+
+              <span>
+                Concept Understanding
+              </span>
+
+              <strong>
+                {
+                  evaluation
+                    .evaluation
+                    .score
+                }%
+              </strong>
+
+            </div>
+
+
+            <div>
+
+              <span>
+                Current Topic Mastery
+              </span>
+
+              <strong>
+                {
+                  evaluation
+                    .topic_mastery
+                }%
+              </strong>
+
+            </div>
+
+
+            <div>
+
+              <span>
+                Overall Lab Readiness
+              </span>
+
+              <strong>
+                {
+                  evaluation
+                    .lab_readiness
+                }%
+              </strong>
+
+            </div>
+
+
+          </div>
+
+
+          
+          <details
+            className="adaptiveBox final-score-details"
+            style={{
+              marginTop: "20px",
+              textAlign: "left"
+            }}
+          >
+
+            <summary
+              style={{
+                cursor: "pointer",
+                fontWeight: 700,
+                padding: "4px 0"
+              }}
+            >
+              Why these scores?
+            </summary>
+
+
+
+            <p>
+              <strong>Final Code Score: </strong>
+              {getRetestReason()}
+            </p>
+
+            <p>
+              <strong>Concept Understanding: </strong>
+              {getConceptReason()}
+            </p>
+
+            <p>
+              <strong>Current Topic Mastery: </strong>
+              {getTopicMasteryReason()}
+            </p>
+
+            <p>
+              <strong>Overall Lab Readiness: </strong>
+              {getReadinessReason()}
+            </p>
+
+          
+
+          </details>
+
+          
+          <details
+            className="final-evidence-details"
+            style={{
+              marginTop: "20px",
+              textAlign: "left"
+            }}
+          >
+
+            <summary
+              style={{
+                cursor: "pointer",
+                fontWeight: 700,
+                padding: "12px 0"
+              }}
+            >
+              View Detailed Evidence
+            </summary>
+
+            <p
+              style={{
+                marginBottom: "12px",
+                opacity: 0.8
+              }}
+            >
+              View mastery calculations, viva dimensions,
+              verification evidence, hint independence and
+              the complete learning journey.
+            </p>
+
+<MasteryInsight
+
+            topic={
+              question?.topic ||
+              "Current Topic"
+            }
+
+            mastery={
+              Number(
+                evaluation?.topic_mastery ??
+                0
+              )
+            }
+
+            status={
+              evaluation?.evaluation?.status ||
+              "Needs Verification"
+            }
+
+            firstAttemptScore={
+              Number(
+                analysis?.test_score ??
+                0
+              )
+            }
+
+            codeScore={
+              Number(
+                evaluation?.retest_score ??
+                0
+              )
+            }
+
+            vivaScore={
+              Number(
+                evaluation?.evaluation?.score ??
+                0
+              )
+            }
+
+            verificationPassed={
+              Boolean(
+                evaluation
+                  ?.topic_progress
+                  ?.verification_passed
+              )
+            }
+
+            coreCorrectness={
+              evaluation
+                ?.evaluation
+                ?.dimensions
+                ?.core_correctness
+                ?.rating != null
+
+                ? Number(
+                    evaluation
+                      .evaluation
+                      .dimensions
+                      .core_correctness
+                      .rating
+                  ) * 25
+
+                : null
+            }
+
+            mechanism={
+              evaluation
+                ?.evaluation
+                ?.dimensions
+                ?.mechanism
+                ?.rating != null
+
+                ? Number(
+                    evaluation
+                      .evaluation
+                      .dimensions
+                      .mechanism
+                      .rating
+                  ) * 25
+
+                : null
+            }
+
+            application={
+              evaluation
+                ?.evaluation
+                ?.dimensions
+                ?.application
+                ?.rating != null
+
+                ? Number(
+                    evaluation
+                      .evaluation
+                      .dimensions
+                      .application
+                      .rating
+                  ) * 25
+
+                : null
+            }
+
+            coverage={
+              evaluation
+                ?.evaluation
+                ?.dimensions
+                ?.question_coverage
+                ?.rating != null
+
+                ? Number(
+                    evaluation
+                      .evaluation
+                      .dimensions
+                      .question_coverage
+                      .rating
+                  ) * 25
+
+                : null
+            }
+
+            hintLevel={
+              Number(
+                evaluation?.hint_level ??
+                hintLevelUsed ??
+                0
+              )
+            }
+
+            attempts={
+              Number(
+                evaluation
+                  ?.topic_progress
+                  ?.attempts ??
+                0
+              )
+            }
+
+            misconception={
+              evaluation
+                ?.topic_progress
+                ?.last_misconception ||
+
+              analysis
+                ?.diagnosis
+                ?.topic_misconception ||
+
+              ""
+            }
+
+            recurringMisconception={
+              Number(
+                evaluation
+                  ?.topic_progress
+                  ?.misconception_count ??
+                0
+              ) > 1
+            }
+
+            labReadiness={
+              Number(
+                evaluation?.lab_readiness ??
+                progress?.lab_readiness ??
+                0
+              )
+            }
+
+          />
+
+          </details>
+
+
+
+          <h3>
+            Evaluator Feedback
+          </h3>
+
+
+          <p>
+            {
+              evaluation
+                .evaluation
+                .reason
+            }
+          </p>
+
+
+          {
+            evaluation
+              .evaluation
+              .partial_concepts
+              ?.length > 0
+            && (
+
+              <p>
+                Partially demonstrated:{" "}
+                {
+                  evaluation
+                    .evaluation
+                    .partial_concepts
+                    .join(", ")
+                }
+              </p>
+
+            )
+          }
+
+          {
+            evaluation
+              .evaluation
+              .missing_concepts
+              ?.length > 0
+            && (
+
+              <p>
+                Missing concepts:{" "}
+                {
+                  evaluation
+                    .evaluation
+                    .missing_concepts
+                    .join(", ")
+                }
+              </p>
+
+            )
+          }
+
+
+          {
+            evaluation
+              .evaluation
+              .contradictions
+              ?.length > 0
+            && (
+
+              <p>
+                Conceptual contradiction:{" "}
+                {
+                  evaluation
+                    .evaluation
+                    .contradictions
+                    .join(", ")
+                }
+              </p>
+
+            )
+          }
+
+
+          {
+            evaluation
+              .evaluation
+              .status !== "Mastered"
+            && (
+
+              <p>
+                LabTwin will keep the next question focused on this exact topic until independent mastery is demonstrated.
+              </p>
+
+            )
+          }
+
+
+          <button
+            onClick={
+              nextQuestion
+            }
+            disabled={
+              loading
+            }
+          >
+
+            {loading ? "Generating..." : "Next Question"}
+
+          </button>
+
+
+        </div>
+
+      )}
+
+
+
+        </main>
+
+      </div>
+
+      {/* ================================================= */}
+      {/* DASHBOARD + LEARNING DETAILS BELOW ACTIVE FLOW */}
+      {/* ================================================= */}
+
+{/* ================================================= */}
       {/* DASHBOARD */}
       {/* ================================================= */}
 
@@ -1650,7 +2885,7 @@ function App() {
                         .mastery_score
                     }%
 
-                    {" â€” "}
+                    {" — "}
 
                     {
                       Number(
@@ -1734,7 +2969,7 @@ function App() {
                         .weakest_topic
                         .status === "Mastered"
 
-                        ? "Nothing â€” Mastery Confirmed"
+                        ? "Nothing — Mastery Confirmed"
 
                         : progress
                             .weakest_topic
@@ -2484,1215 +3719,6 @@ function App() {
 
       )}
 
-
-      {/* ================================================= */}
-      {/* SYLLABUS */}
-      {/* ================================================= */}
-
-      {student && (
-
-        <div className="card">
-
-
-          <h2>
-            Upload Lab Syllabus
-          </h2>
-
-
-          <p>
-
-            LabTwin will use existing
-            questions if present.
-
-            Otherwise it will generate
-            questions only from syllabus
-            topics.
-
-          </p>
-
-
-          <input
-
-            type="file"
-
-            accept=".pdf,.txt"
-
-            onChange={(e) =>
-              setFile(
-                e.target.files[0]
-              )
-            }
-
-          />
-
-
-          <br />
-          <br />
-
-
-          <button
-            onClick={
-              uploadSyllabus
-            }
-            disabled={
-              loading ||
-              !file
-            }
-          >
-
-            {
-              loading
-                ? "Analyzing..."
-                : "Upload & Analyze Syllabus"
-            }
-
-          </button>
-
-
-          {syllabus && (
-
-            <div
-              style={{
-                marginTop: "20px"
-              }}
-            >
-
-              <p>
-                {
-                  syllabus.filename
-                }
-              </p>
-
-
-              <p>
-
-                <strong>
-                  Mode:
-                </strong>{" "}
-
-                {
-                  syllabus.mode ===
-                  "existing_questions"
-
-                    ? "Existing questions detected"
-
-                    : "Questions generated from syllabus topics"
-                }
-
-              </p>
-
-
-              <p>
-
-                <strong>
-                  Topics:
-                </strong>{" "}
-
-                {
-                  syllabus.topics?.join(
-                    ", "
-                  )
-                }
-
-              </p>
-
-
-              {
-                syllabus.mode ===
-                "existing_questions"
-                && (
-
-                  <p>
-
-                    Questions found:{" "}
-
-                    {
-                      syllabus.existing_question_count
-                    }
-
-                  </p>
-
-                )
-              }
-
-            </div>
-
-          )}
-
-
-        </div>
-
-      )}
-
-
-      {/* ================================================= */}
-      {/* QUESTION */}
-      {/* ================================================= */}
-
-      {question && (
-
-        <div className="card">
-
-
-          <div
-            style={{
-              display: "flex",
-              justifyContent:
-                "space-between",
-              alignItems: "center",
-              gap: "20px"
-            }}
-          >
-
-
-            <div>
-
-              <h2>
-
-                Question {
-                  question.question_number
-                }
-
-              </h2>
-
-
-              <p>
-
-                {
-                  question.is_verification
-
-                    ? "Independent verification of your current weak topic"
-
-                    : question.source ===
-                      "syllabus"
-
-                      ? "From uploaded syllabus"
-
-                      : "Generated from syllabus topic"
-                }
-
-              </p>
-
-            </div>
-
-
-            <button
-              onClick={
-                nextQuestion
-              }
-              disabled={
-                loading
-              }
-            >
-
-              Next Question
-
-            </button>
-
-          </div>
-
-
-          <h3>
-            Programming Language
-          </h3>
-
-          <p>
-            {question.language}
-          </p>
-
-          {question.language === "C" && (
-
-            <div className="adaptiveBox">
-
-              <strong>
-                C question detected
-              </strong>
-
-              <p>
-                LabTwin detected a C programming concept.
-                Your C code will be compiled using GCC and tested automatically.
-              </p>
-
-            </div>
-
-          )}
-
-          <h3>
-            Topic
-          </h3>
-
-
-          <p>
-            {
-              question.topic
-            }
-          </p>
-
-
-          <h3>
-            Programming Problem
-          </h3>
-
-
-          <div
-            className="problemText markdownProblem"
-          >
-            <ReactMarkdown>
-              {
-                String(
-                  question.problem || ""
-                ).replace(
-                  /\\n/g,
-                  "\n"
-                )
-              }
-            </ReactMarkdown>
-          </div>
-
-
-          <h3>
-            Your Code
-          </h3>
-
-
-          <textarea
-
-            value={
-              code
-            }
-
-            onChange={(e) =>
-              setCode(
-                e.target.value
-              )
-            }
-
-            placeholder={
-              `Write your ${question?.language || "programming"} code here...`
-            }
-
-          />
-
-
-          <button
-            onClick={
-              analyzeCode
-            }
-            disabled={
-              loading ||
-              !code.trim() ||
-              question?.execution_supported === false
-            }
-          >
-
-            {
-              loading
-                ? "Working..."
-                : "Analyze Code"
-            }
-
-          </button>
-
-
-        </div>
-
-      )}
-
-
-      {/* ================================================= */}
-      {/* ANALYSIS */}
-      {/* ================================================= */}
-
-      {analysis && (
-
-        <div className="card">
-
-
-          <h2>
-            Code Analysis
-          </h2>
-
-
-          <h3>
-
-            Initial Test Score:{" "}
-
-            {
-              analysis.test_score
-            }%
-
-          </h3>
-
-
-          <h3>
-            Hidden Test Cases
-          </h3>
-
-
-          {
-            analysis
-              .test_results
-              .map(
-                (test) => (
-
-                  <p
-                    key={
-                      test.test
-                    }
-                  >
-
-                    Test {
-                      test.test
-                    }:{" "}
-
-                    {
-                      test.passed
-                        ? "PASS"
-                        : "FAIL"
-                    }
-
-                  </p>
-
-                )
-              )
-          }
-
-
-
-          <h3>
-            Misconception
-          </h3>
-
-
-          <p>
-
-            {
-              analysis
-                .diagnosis
-                .misconception
-              ||
-              "No misconception detected"
-            }
-
-          </p>
-
-          {analysis.diagnosis.has_misconception && (
-            <>
-              <h3>Error Classification</h3>
-              <p>
-                {analysis.diagnosis.error_category || "other"}
-              </p>
-
-              <h3>Evidence About This Topic</h3>
-              <p>
-                {analysis.diagnosis.topic_related
-                  ? `Topic-related misconception: ${analysis.diagnosis.topic_misconception || analysis.diagnosis.misconception}`
-                  : `This coding error is not evidence of a weakness in ${question?.topic}.`}
-              </p>
-            </>
-          )}
-
-
-          <h3>
-            Explanation
-          </h3>
-
-
-          <p>
-
-            {
-              analysis
-                .diagnosis
-                .explanation
-            }
-
-          </p>
-
-
-
-          {
-            analysis?.diagnosis?.hint &&
-            analysis.diagnosis.hint
-              .trim()
-              .toLowerCase() !==
-                "no correction is needed."
-            && (
-              <>
-                <h3>
-                  Hint
-                </h3>
-
-                <p>
-                  {
-                    analysis
-                      .diagnosis
-                      .hint
-                  }
-                </p>
-              </>
-            )
-          }
-
-
-        </div>
-
-      )}
-
-
-      {/* ================================================= */}
-      {/* MASTERED */}
-      {/* ================================================= */}
-
-      {mastered && (
-
-        <div className="card report">
-
-
-          <h2>
-            Current Problem Mastered
-          </h2>
-
-
-          <p>
-            All hidden tests passed.
-          </p>
-
-
-          <div className="reportGrid">
-
-
-            <div>
-
-              <span>
-                Test Score
-              </span>
-
-              <strong>
-                100%
-              </strong>
-
-            </div>
-
-
-            <div>
-
-              <span>
-                Status
-              </span>
-
-              <strong>
-                Mastered
-              </strong>
-
-            </div>
-
-
-            <div>
-
-              <span>
-                Retest Required
-              </span>
-
-              <strong>
-                No
-              </strong>
-
-            </div>
-
-
-            <div>
-
-              <span>
-                Readiness
-              </span>
-
-              <strong>
-                100%
-              </strong>
-
-            </div>
-
-
-          </div>
-
-
-          <br />
-
-
-          <button
-            onClick={
-              nextQuestion
-            }
-            disabled={
-              loading
-            }
-          >
-
-            {loading ? "Generating..." : "Next Question"}
-
-          </button>
-
-
-        </div>
-
-      )}
-
-
-      {/* ================================================= */}
-      {/* TUTOR */}
-      {/* ================================================= */}
-
-      {tutor && (
-
-        <div className="card">
-
-
-          <h2>
-            {
-              (analysis?.test_score === 100 &&
-                analysis?.concept_requirement_met !== false)
-                ? "Concept Verification"
-                : "Adaptive Tutor"
-            }
-          </h2>
-
-
-          {!(analysis?.test_score === 100 &&
-                analysis?.concept_requirement_met !== false) && (
-
-            <>
-
-              <ProgressiveHints
-                problem={
-                  question?.problem || ""
-                }
-                conceptKey={
-                  analysis?.diagnosis?.concept_key ||
-                  question?.concept_key ||
-                  "OTHER"
-                }
-                misconception={
-                  analysis?.diagnosis?.misconception ||
-                  ""
-                }
-                firstHint={
-                  tutor.hint
-                }
-                initialLevel={
-                  1
-                }
-                onLevelChange={
-                  setHintLevelUsed
-                }
-              />
-
-
-              <h3>
-                Practice Problem
-              </h3>
-
-
-              <p>
-                {
-                  tutor.practice_problem
-                }
-              </p>
-
-            </>
-
-          )}
-
-
-          {(analysis?.test_score === 100 &&
-                analysis?.concept_requirement_met !== false) && (
-
-            <p>
-              Your code passed independently. LabTwin is now checking whether you understand the exact concept before marking the topic as mastered.
-            </p>
-
-          )}
-
-
-          <h3>
-            Viva Question
-          </h3>
-
-
-          <p>
-            {
-              tutor.viva_question
-            }
-          </p>
-
-
-          <h3>
-            {
-              (analysis?.test_score === 100 &&
-                analysis?.concept_requirement_met !== false)
-                ? "Your Verified Code"
-                : "Correct Your Code"
-            }
-          </h3>
-
-
-          <textarea
-
-            value={
-              correctedCode
-            }
-
-            onChange={(e) =>
-              setCorrectedCode(
-                e.target.value
-              )
-            }
-
-            placeholder={
-              `Enter ${question?.language || "programming"} code...`
-            }
-
-          />
-
-
-          <h3>
-            Your Viva Answer
-          </h3>
-
-
-          <textarea
-
-            value={
-              vivaAnswer
-            }
-
-            onChange={(e) =>
-              setVivaAnswer(
-                e.target.value
-              )
-            }
-
-            placeholder={
-              "Explain the concept in your own words..."
-            }
-
-          />
-
-
-          <button
-
-            onClick={
-              evaluateCode
-            }
-
-            disabled={
-              loading ||
-              !correctedCode.trim() ||
-              !vivaAnswer.trim()
-            }
-
-          >
-
-            {
-              (analysis?.test_score === 100 &&
-                analysis?.concept_requirement_met !== false)
-                ? "Verify Understanding"
-                : "Evaluate Improvement"
-            }
-
-          </button>
-
-
-        </div>
-
-      )}
-
-
-      {/* ================================================= */}
-      {/* FINAL */}
-      {/* ================================================= */}
-
-      {evaluation && (
-
-        <div className="card report">
-
-
-          <h2>
-            LabTwin Final Report
-          </h2>
-
-          {/* FINAL_REPORT_SIMPLE_SUMMARY */}
-
-          <div
-            style={{
-              margin: "12px 0 20px",
-              padding: "14px 16px",
-              borderRadius: "12px",
-              background: "rgba(0,0,0,0.035)"
-            }}
-          >
-
-            <strong>
-              {question?.topic || "Current Topic"}
-            </strong>
-
-            <p
-              style={{
-                marginTop: "5px"
-              }}
-            >
-              {
-                evaluation?.evaluation?.status === "Mastered"
-                  ? "Topic mastered. You can move to another syllabus topic."
-                  : "More evidence is needed before this topic is mastered."
-              }
-            </p>
-
-            <p
-              style={{
-                marginTop: "5px",
-                fontSize: "0.9em"
-              }}
-            >
-              Independent Verification:{" "}
-              <strong>
-                {
-                  evaluation
-                    ?.topic_progress
-                    ?.verification_passed
-                    ? "PASSED"
-                    : "PENDING"
-                }
-              </strong>
-            </p>
-
-          </div>
-
-
-          <div className="reportGrid">
-
-
-            <div>
-
-              <span>
-                Final Code Score
-              </span>
-
-              <strong>
-                {
-                  evaluation
-                    .retest_score
-                }%
-              </strong>
-
-            </div>
-
-
-            <div>
-
-              <span>
-                Concept Understanding
-              </span>
-
-              <strong>
-                {
-                  evaluation
-                    .evaluation
-                    .score
-                }%
-              </strong>
-
-            </div>
-
-
-            <div>
-
-              <span>
-                Current Topic Mastery
-              </span>
-
-              <strong>
-                {
-                  evaluation
-                    .topic_mastery
-                }%
-              </strong>
-
-            </div>
-
-
-            <div>
-
-              <span>
-                Overall Lab Readiness
-              </span>
-
-              <strong>
-                {
-                  evaluation
-                    .lab_readiness
-                }%
-              </strong>
-
-            </div>
-
-
-          </div>
-
-
-
-          <details
-            className="adaptiveBox final-score-details"
-            style={{
-              marginTop: "20px",
-              textAlign: "left"
-            }}
-          >
-
-            <summary
-              style={{
-                cursor: "pointer",
-                fontWeight: 700,
-                padding: "4px 0"
-              }}
-            >
-              Why these scores?
-            </summary>
-
-
-
-            <p>
-              <strong>Final Code Score: </strong>
-              {getRetestReason()}
-            </p>
-
-            <p>
-              <strong>Concept Understanding: </strong>
-              {getConceptReason()}
-            </p>
-
-            <p>
-              <strong>Current Topic Mastery: </strong>
-              {getTopicMasteryReason()}
-            </p>
-
-            <p>
-              <strong>Overall Lab Readiness: </strong>
-              {getReadinessReason()}
-            </p>
-
-
-
-          </details>
-
-
-          <details
-            className="final-evidence-details"
-            style={{
-              marginTop: "20px",
-              textAlign: "left"
-            }}
-          >
-
-            <summary
-              style={{
-                cursor: "pointer",
-                fontWeight: 700,
-                padding: "12px 0"
-              }}
-            >
-              View Detailed Evidence
-            </summary>
-
-            <p
-              style={{
-                marginBottom: "12px",
-                opacity: 0.8
-              }}
-            >
-              View mastery calculations, viva dimensions,
-              verification evidence, hint independence and
-              the complete learning journey.
-            </p>
-
-<MasteryInsight
-
-            topic={
-              question?.topic ||
-              "Current Topic"
-            }
-
-            mastery={
-              Number(
-                evaluation?.topic_mastery ??
-                0
-              )
-            }
-
-            status={
-              evaluation?.evaluation?.status ||
-              "Needs Verification"
-            }
-
-            firstAttemptScore={
-              Number(
-                analysis?.test_score ??
-                0
-              )
-            }
-
-            codeScore={
-              Number(
-                evaluation?.retest_score ??
-                0
-              )
-            }
-
-            vivaScore={
-              Number(
-                evaluation?.evaluation?.score ??
-                0
-              )
-            }
-
-            verificationPassed={
-              Boolean(
-                evaluation
-                  ?.topic_progress
-                  ?.verification_passed
-              )
-            }
-
-            coreCorrectness={
-              evaluation
-                ?.evaluation
-                ?.dimensions
-                ?.core_correctness
-                ?.rating != null
-
-                ? Number(
-                    evaluation
-                      .evaluation
-                      .dimensions
-                      .core_correctness
-                      .rating
-                  ) * 25
-
-                : null
-            }
-
-            mechanism={
-              evaluation
-                ?.evaluation
-                ?.dimensions
-                ?.mechanism
-                ?.rating != null
-
-                ? Number(
-                    evaluation
-                      .evaluation
-                      .dimensions
-                      .mechanism
-                      .rating
-                  ) * 25
-
-                : null
-            }
-
-            application={
-              evaluation
-                ?.evaluation
-                ?.dimensions
-                ?.application
-                ?.rating != null
-
-                ? Number(
-                    evaluation
-                      .evaluation
-                      .dimensions
-                      .application
-                      .rating
-                  ) * 25
-
-                : null
-            }
-
-            coverage={
-              evaluation
-                ?.evaluation
-                ?.dimensions
-                ?.question_coverage
-                ?.rating != null
-
-                ? Number(
-                    evaluation
-                      .evaluation
-                      .dimensions
-                      .question_coverage
-                      .rating
-                  ) * 25
-
-                : null
-            }
-
-            hintLevel={
-              Number(
-                evaluation?.hint_level ??
-                hintLevelUsed ??
-                0
-              )
-            }
-
-            attempts={
-              Number(
-                evaluation
-                  ?.topic_progress
-                  ?.attempts ??
-                0
-              )
-            }
-
-            misconception={
-              evaluation
-                ?.topic_progress
-                ?.last_misconception ||
-
-              analysis
-                ?.diagnosis
-                ?.topic_misconception ||
-
-              ""
-            }
-
-            recurringMisconception={
-              Number(
-                evaluation
-                  ?.topic_progress
-                  ?.misconception_count ??
-                0
-              ) > 1
-            }
-
-            labReadiness={
-              Number(
-                evaluation?.lab_readiness ??
-                progress?.lab_readiness ??
-                0
-              )
-            }
-
-          />
-
-          </details>
-
-
-
-          <h3>
-            Evaluator Feedback
-          </h3>
-
-
-          <p>
-            {
-              evaluation
-                .evaluation
-                .reason
-            }
-          </p>
-
-
-          {
-            evaluation
-              .evaluation
-              .partial_concepts
-              ?.length > 0
-            && (
-
-              <p>
-                Partially demonstrated:{" "}
-                {
-                  evaluation
-                    .evaluation
-                    .partial_concepts
-                    .join(", ")
-                }
-              </p>
-
-            )
-          }
-
-          {
-            evaluation
-              .evaluation
-              .missing_concepts
-              ?.length > 0
-            && (
-
-              <p>
-                Missing concepts:{" "}
-                {
-                  evaluation
-                    .evaluation
-                    .missing_concepts
-                    .join(", ")
-                }
-              </p>
-
-            )
-          }
-
-
-          {
-            evaluation
-              .evaluation
-              .contradictions
-              ?.length > 0
-            && (
-
-              <p>
-                Conceptual contradiction:{" "}
-                {
-                  evaluation
-                    .evaluation
-                    .contradictions
-                    .join(", ")
-                }
-              </p>
-
-            )
-          }
-
-
-          {
-            evaluation
-              .evaluation
-              .status !== "Mastered"
-            && (
-
-              <p>
-                LabTwin will keep the next question focused on this exact topic until independent mastery is demonstrated.
-              </p>
-
-            )
-          }
-
-
-          <button
-            onClick={
-              nextQuestion
-            }
-            disabled={
-              loading
-            }
-          >
-
-            {loading ? "Generating..." : "Next Question"}
-
-          </button>
-
-
-        </div>
-
-      )}
 
 
 
