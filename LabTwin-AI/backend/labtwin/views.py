@@ -3510,158 +3510,156 @@ def tutor_help(request):
             request.body or "{}"
         )
 
-        concept = data.get(
-            "concept_key",
-            "OTHER"
-        )
-
-        topic = data.get(
-            "topic",
-            concept
-        )
-
-        misconception = data.get(
-            "misconception",
-            ""
-        )
-
-        passed_code = bool(
+        concept = str(
             data.get(
-                "passed_code",
-                False
+                "concept_key",
+                "OTHER"
             )
+            or "OTHER"
+        ).strip()
+
+        misconception = str(
+            data.get(
+                "misconception",
+                ""
+            )
+            or ""
+        ).strip()
+
+        question = get_current_question(
+            data.get("question_id")
         )
 
-        topic_related = bool(
-            data.get(
-                "topic_related",
-                True
-            )
-        )
+        question = question or {}
 
-        error_category = str(
-            data.get(
-                "error_category",
-                "topic_concept"
-            )
-            or "topic_concept"
+        language = str(
+            question.get("language")
+            or data.get("language")
+            or "Python"
+        ).strip()
+
+        topic = str(
+            question.get("topic")
+            or data.get("topic")
+            or concept
+            or "General"
+        ).strip()
+
+        problem = str(
+            question.get("problem")
+            or data.get("problem")
+            or ""
         ).strip()
 
 
-        expected_topic_concept = expected_concept_key_for_topic(
-            topic
+        # ----------------------------------------------------
+        # FALLBACKS
+        # ----------------------------------------------------
+
+        if misconception:
+
+            fallback_hint = (
+                "Focus on the identified mistake: "
+                + misconception
+                + " Correct that part of your "
+                + language
+                + " logic without changing the required topic."
+            )
+
+            fallback_viva = (
+                "In "
+                + language
+                + ", explain what was wrong in your original "
+                + topic
+                + " approach and why your correction fixes it."
+            )
+
+        else:
+
+            fallback_hint = (
+                "Review how "
+                + topic
+                + " is used in this "
+                + language
+                + " program."
+            )
+
+            fallback_viva = (
+                "In "
+                + language
+                + ", explain how "
+                + topic
+                + " is used in this program and why it is "
+                + "appropriate here."
+            )
+
+        fallback_practice = (
+            "Write another short "
+            + language
+            + " program that directly practices "
+            + topic
+            + " using standard input and output."
         )
 
-        if (
-            expected_topic_concept
-            and concept != expected_topic_concept
-        ):
-            print(
-                "TUTOR CONCEPT REALIGNED:",
-                concept,
-                "->",
-                expected_topic_concept,
-                "for topic",
-                topic,
-            )
-            concept = expected_topic_concept
+        fallback_expected = [
+            "Correct understanding of " + topic,
+            "Connection between the explanation and the code",
+            "Why the corrected approach works"
+        ]
 
-        if passed_code:
-            tutor_mode = """
-The student's code already passes all hidden tests.
 
-Do NOT give correction help.
-
-Generate:
-1. ONE short, unambiguous conceptual viva question for the exact topic.
-2. Three concise expected concepts that a strong answer should cover.
-3. Keep hint and practice_problem empty strings.
-
-VIVA QUALITY RULES:
-- The question must test real understanding, not memorized wording.
-- Every expected concept must directly correspond to something the viva question asks.
-- Accept explanations in the student's own words; do not require exact textbook phrases.
-- Do not create self-comparisons or ambiguous contrasts.
-- Never ask a student to compare two names that mean the same thing (for example, "pointer to a function" versus "function pointer variable").
-- If declaration syntax is important, ask explicitly for one short declaration example instead of hiding syntax inside the rubric.
-- Do not ask for exact syntax unless syntax itself is central to the topic.
-- For programming concepts, prefer meaning + how it is used + why/when it is useful.
-- A strong answer should normally fit in 2-4 sentences.
-
-This is a concept-verification step, not remediation.
-"""
-        elif topic_related:
-            tutor_mode = """
-The student's code failed because of a misconception that IS related to the
-exact syllabus topic.
-
-Generate:
-1. One progressive conceptual hint.
-2. One short targeted practice problem.
-3. ONE clear viva question that checks the exact topic misconception.
-4. Three concise expected concepts that directly match that viva question.
-
-VIVA QUALITY RULES:
-- Test conceptual understanding rather than exact wording.
-- Do not include hidden requirements that the viva question did not ask.
-- Do not create self-comparisons or ambiguous terminology.
-- Never ask a student to compare two names that mean the same thing.
-- If declaration syntax is important, ask explicitly for one short declaration example.
-- Do not demand exact syntax unless syntax itself is central to the concept.
-- A strong answer should normally fit in 2-4 sentences.
-
-Do not reveal the complete solution.
-"""
-        else:
-            tutor_mode = """
-The student's code failed, but the detected coding error is NOT evidence of a
-misconception about the exact syllabus topic.
-
-Generate:
-1. One short progressive hint that helps fix the actual coding error.
-2. One very short practice problem for that coding error.
-3. ONE viva question that verifies understanding of the PROGRAMMING TOPIC,
-   not the unrelated coding error.
-4. Three concise expected concepts for that topic viva.
-
-Do not turn an indexing, formatting, input/output, or unrelated syntax error
-into a false weakness for the syllabus topic.
-Do not reveal the complete solution.
-"""
+        # ----------------------------------------------------
+        # AI TUTOR
+        # ----------------------------------------------------
 
         task = Task(
             description=f"""
-EXACT UPLOADED SYLLABUS TOPIC:
+You are tutoring a student on ONE programming lab question.
+
+CURRENT PROGRAMMING LANGUAGE:
+{language}
+
+EXACT SYLLABUS TOPIC:
 {topic}
 
-BROAD CONCEPT:
+CURRENT PROGRAMMING PROBLEM:
+{problem}
+
+DETECTED CONCEPT:
 {concept}
 
-ALIGNMENT RULE:
-The exact uploaded syllabus topic above is authoritative. Incidental constructs used by the student's code must NOT replace it. The viva question and expected concepts must primarily test "{topic}".
-For example, Java Program Structure must focus on class/program layout, main method/entry point/imports, not if-else, switch, loops, or short-circuiting merely because the sample program uses them.
-
-MISCONCEPTION / CODING ERROR:
+DETECTED MISCONCEPTION:
 {misconception}
 
-ERROR CATEGORY:
-{error_category}
+LANGUAGE LOCK -- NON-NEGOTIABLE:
 
-IS THIS ERROR RELATED TO THE EXACT TOPIC?
-{topic_related}
+1. Every hint, practice problem and viva question MUST use
+   exactly {language}.
+2. NEVER mention Java when the current language is C.
+3. NEVER mention Python when the current language is C.
+4. NEVER switch programming languages.
+5. The viva must be directly related to THIS problem,
+   THIS topic and the identified mistake.
+6. Do not ask a generic viva from another language.
+7. Do not reveal the complete corrected program.
+8. Keep the hint short and useful.
 
-{tutor_mode}
+Generate:
+- one progressive hint
+- one short related practice problem
+- one clear viva question
+- exactly three concise expected concepts for that viva
 
-Return ONLY JSON:
+Return ONLY valid JSON:
 
 {{
-    "hint": "Progressive hint or empty string",
-    "practice_problem": "Short related practice problem or empty string",
-    "viva_question": "One conceptual viva question",
+    "hint": "Short language-correct hint",
+    "practice_problem": "Short language-correct practice problem",
+    "viva_question": "One language-correct viva question",
     "expected_concepts": [
-        "Expected concept 1",
-        "Expected concept 2",
-        "Expected concept 3"
+        "Concept 1",
+        "Concept 2",
+        "Concept 3"
     ]
 }}
 """,
@@ -3669,85 +3667,187 @@ Return ONLY JSON:
             agent=tutor_agent
         )
 
-        crew = Crew(
-            agents=[tutor_agent],
-            tasks=[task],
-            process=Process.sequential,
-            verbose=False
-        )
+        try:
 
-        result = None
-        last_tutor_error = None
-
-        for tutor_attempt in range(1, 4):
-            try:
-                candidate = clean_json_output(
-                    crew.kickoff().raw
-                )
-
-                viva_question = str(
-                    candidate.get(
-                        "viva_question",
-                        ""
-                    )
-                ).strip()
-
-                if not viva_question_matches_topic(
-                    topic,
-                    viva_question
-                ):
-                    raise ValueError(
-                        f'Viva drifted away from exact syllabus topic "{topic}".'
-                    )
-
-                result = candidate
-                break
-
-            except Exception as error:
-                last_tutor_error = error
-                print(
-                    f"TUTOR ALIGNMENT ATTEMPT {tutor_attempt} FAILED:",
-                    error
-                )
-
-        if result is None:
-            raise ValueError(
-                f"Could not generate a topic-aligned viva after 3 attempts: {last_tutor_error}"
+            crew = Crew(
+                agents=[tutor_agent],
+                tasks=[task],
+                process=Process.sequential,
+                verbose=False
             )
 
-        expected = result.get(
+            result = clean_json_output(
+                crew.kickoff().raw
+            )
+
+            if not isinstance(result, dict):
+                result = {}
+
+        except Exception as ai_error:
+
+            print(
+                "TUTOR AI ERROR - USING SAFE FALLBACK:",
+                ai_error
+            )
+
+            result = {}
+
+
+        hint = str(
+            result.get("hint")
+            or fallback_hint
+        ).strip()
+
+        practice_problem = str(
+            result.get("practice_problem")
+            or fallback_practice
+        ).strip()
+
+        viva_question = str(
+            result.get("viva_question")
+            or fallback_viva
+        ).strip()
+
+        expected_concepts = result.get(
             "expected_concepts",
-            []
+            fallback_expected
         )
 
         if not isinstance(
-            expected,
+            expected_concepts,
             list
         ):
-            expected = []
 
-        result[
-            "expected_concepts"
-        ] = [
+            expected_concepts = (
+                fallback_expected
+            )
+
+        expected_concepts = [
             str(item).strip()
-            for item in expected
+            for item in expected_concepts
             if str(item).strip()
         ][:3]
 
-        return JsonResponse(
-            result
+        while len(expected_concepts) < 3:
+
+            expected_concepts.append(
+                fallback_expected[
+                    len(expected_concepts)
+                ]
+            )
+
+
+        # ----------------------------------------------------
+        # HARD LANGUAGE SAFETY CHECK
+        # ----------------------------------------------------
+
+        language_lower = (
+            language.lower()
         )
 
+        if language_lower == "c":
+
+            forbidden = [
+                "java",
+                "python",
+                "javascript",
+                "c++"
+            ]
+
+        elif language_lower == "java":
+
+            forbidden = [
+                "python",
+                "gcc",
+                "c language",
+                "c program"
+            ]
+
+        elif language_lower == "python":
+
+            forbidden = [
+                "java",
+                "gcc",
+                "c language",
+                "c program"
+            ]
+
+        else:
+
+            forbidden = []
+
+
+        def wrong_language(value):
+
+            text = str(
+                value
+            ).lower()
+
+            return any(
+                word in text
+                for word in forbidden
+            )
+
+
+        if wrong_language(hint):
+            hint = fallback_hint
+
+        if wrong_language(
+            practice_problem
+        ):
+            practice_problem = (
+                fallback_practice
+            )
+
+        if wrong_language(
+            viva_question
+        ):
+            viva_question = (
+                fallback_viva
+            )
+
+        if any(
+            wrong_language(item)
+            for item in expected_concepts
+        ):
+            expected_concepts = (
+                fallback_expected
+            )
+
+
+        return JsonResponse({
+            "hint":
+                hint,
+
+            "practice_problem":
+                practice_problem,
+
+            "viva_question":
+                viva_question,
+
+            "expected_concepts":
+                expected_concepts,
+
+            "language":
+                language,
+
+            "topic":
+                topic
+        })
+
+
     except Exception as error:
+
+        print(
+            "TUTOR ERROR:",
+            error
+        )
+
         return JsonResponse(
             {"error": str(error)},
             status=500
         )
 
-
-# ============================================================
-# EVALUATE
-# ============================================================
 
 @csrf_exempt
 def evaluate_code(request):

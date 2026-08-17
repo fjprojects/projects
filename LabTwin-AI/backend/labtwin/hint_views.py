@@ -5,134 +5,278 @@ from django.views.decorators.csrf import csrf_exempt
 
 from crewai import Agent, Task, Crew, Process
 
-from .views import llm, clean_json_output
+from .views import (
+    llm,
+    clean_json_output,
+    get_current_question,
+)
 
 
-hint_agent = Agent(
-    role="Progressive Hint Coach",
+progressive_hint_agent = Agent(
+    role="Progressive Programming Hint Tutor",
     goal=(
-        "Give increasingly useful programming hints without "
-        "revealing the complete solution."
+        "Give the next useful hint without revealing "
+        "the complete solution."
     ),
     backstory=(
-        "You are a programming lab instructor. "
-        "Students should think independently. "
-        "Hint level 1 is subtle, level 2 is more specific, "
-        "and level 3 is strong guidance but must still avoid "
-        "providing complete code."
+        "You teach programming step by step and stay "
+        "strictly in the current programming language."
     ),
     llm=llm,
-    verbose=False
+    verbose=False,
 )
+
+
+def _detect_language(
+    explicit_language,
+    problem,
+):
+
+    explicit = str(
+        explicit_language or ""
+    ).strip()
+
+    if explicit:
+        return explicit
+
+    text = str(
+        problem or ""
+    ).lower()
+
+    if (
+        "c program" in text
+        or "gcc" in text
+        or "#include" in text
+    ):
+        return "C"
+
+    if (
+        "java" in text
+        or "public class main" in text
+    ):
+        return "Java"
+
+    if "python" in text:
+        return "Python"
+
+    return "Python"
 
 
 @csrf_exempt
 def progressive_hint(request):
 
     if request.method != "POST":
+
         return JsonResponse(
             {"error": "POST required"},
             status=405
         )
 
     try:
-        data = json.loads(request.body)
 
-        problem = data.get("problem", "")
-        concept = data.get("concept_key", "OTHER")
-        misconception = data.get("misconception", "")
-        level = int(data.get("level", 1))
+        data = json.loads(
+            request.body or "{}"
+        )
 
-        if level < 1:
-            level = 1
+        question = None
 
-        if level > 3:
-            level = 3
+        question_id = data.get(
+            "question_id"
+        )
+
+        if question_id:
+
+            try:
+                question = (
+                    get_current_question(
+                        question_id
+                    )
+                )
+            except Exception:
+                question = None
+
+        question = question or {}
+
+        problem = str(
+            question.get("problem")
+            or data.get("problem")
+            or ""
+        ).strip()
+
+        topic = str(
+            question.get("topic")
+            or data.get("topic")
+            or data.get("concept_key")
+            or "current topic"
+        ).strip()
+
+        language = _detect_language(
+            question.get("language")
+            or data.get("language"),
+            problem,
+        )
+
+        misconception = str(
+            data.get("misconception")
+            or ""
+        ).strip()
+
+        previous_hint = str(
+            data.get("current_hint")
+            or data.get("previous_hint")
+            or data.get("hint")
+            or ""
+        ).strip()
 
 
-        if level == 1:
-            instruction = """
-Give a SMALL conceptual clue.
-Do not mention the exact line that needs changing.
-Do not provide code.
-"""
+        raw_level = (
+            data.get("next_level")
+            or data.get("hint_level")
+            or data.get("level")
+            or 2
+        )
 
-        elif level == 2:
-            instruction = """
-Give a MORE SPECIFIC clue.
-Tell the student which concept or part of the logic
-they should inspect.
-You may give tiny syntax fragments, but not the solution.
-"""
+        try:
+            level = int(
+                raw_level
+            )
+        except Exception:
+            level = 2
+
+        level = max(
+            2,
+            min(
+                3,
+                level
+            )
+        )
+
+
+        if level == 2:
+
+            fallback = (
+                "Focus on the exact failing case described by "
+                "the diagnosis: "
+                + (
+                    misconception
+                    or "trace the failing test case carefully"
+                )
+                + ". Compare that case with your current "
+                + language
+                + " initialization and update logic."
+            )
 
         else:
-            instruction = """
-Give STRONG guidance.
-Explain the correction approach step by step,
-but DO NOT provide the complete finished program.
-"""
+
+            fallback = (
+                "Trace the smallest input that reproduces the "
+                "mistake, identify the exact initialization or "
+                "condition responsible, and change only that "
+                "part of your "
+                + language
+                + " solution."
+            )
 
 
         task = Task(
             description=f"""
-PROGRAMMING QUESTION:
+Generate progressive hint level {level} of 3.
 
+PROGRAMMING LANGUAGE:
+{language}
+
+EXACT TOPIC:
+{topic}
+
+PROBLEM:
 {problem}
 
-CONCEPT:
-
-{concept}
-
-DETECTED MISCONCEPTION:
-
+MISCONCEPTION:
 {misconception}
 
-CURRENT HINT LEVEL:
+PREVIOUS HINT:
+{previous_hint}
 
-{level}
+STRICT RULES:
 
-{instruction}
-
-The hint must address the detected misconception and
-the exact programming question.
+1. Stay ONLY in {language}.
+2. Never mention or switch to another programming language.
+3. Hint {level} must be more specific than the previous hint.
+4. Do NOT reveal the full corrected program.
+5. Directly address the current problem and misconception.
+6. Keep the hint concise.
 
 Return ONLY valid JSON:
 
 {{
-    "level": {level},
-    "hint": "Your progressive hint",
-    "strength": "Low"
+    "hint": "Next progressive hint"
 }}
-
-Use strength:
-
-Level 1 = Low
-Level 2 = Medium
-Level 3 = High
 """,
-            expected_output="Valid JSON progressive hint",
-            agent=hint_agent
+            expected_output="Valid JSON",
+            agent=progressive_hint_agent
         )
 
 
-        crew = Crew(
-            agents=[hint_agent],
-            tasks=[task],
-            process=Process.sequential,
-            verbose=False
-        )
+        try:
 
-        result = crew.kickoff()
+            crew = Crew(
+                agents=[
+                    progressive_hint_agent
+                ],
+                tasks=[task],
+                process=Process.sequential,
+                verbose=False,
+            )
 
-        hint_data = clean_json_output(
-            result.raw
-        )
+            result = clean_json_output(
+                crew.kickoff().raw
+            )
 
-        hint_data["level"] = level
+            hint = str(
+                result.get(
+                    "hint",
+                    ""
+                )
+            ).strip()
 
-        return JsonResponse(
-            hint_data
-        )
+        except Exception as ai_error:
+
+            print(
+                "PROGRESSIVE HINT AI ERROR - FALLBACK:",
+                ai_error
+            )
+
+            hint = ""
+
+
+        if not hint:
+            hint = fallback
+
+
+        # Prevent cross-language leakage.
+
+        if language.lower() == "c":
+
+            bad_words = [
+                "java",
+                "python",
+                "javascript",
+                "c++"
+            ]
+
+            if any(
+                word in hint.lower()
+                for word in bad_words
+            ):
+                hint = fallback
+
+
+        return JsonResponse({
+            "success": True,
+            "hint": hint,
+            "level": level,
+            "hint_level": level,
+        })
 
 
     except Exception as error:
@@ -143,6 +287,9 @@ Level 3 = High
         )
 
         return JsonResponse(
-            {"error": str(error)},
+            {
+                "error":
+                    str(error)
+            },
             status=500
         )

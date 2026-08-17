@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import "./App.css";
@@ -954,6 +954,18 @@ function App() {
             `${API}/tutor/`,
 
             {
+              question_id:
+                question?.id,
+
+              language:
+                question?.language,
+
+              topic:
+                question?.topic,
+
+              problem:
+                question?.problem,
+
               concept_key:
                 diagnosis.concept_key,
 
