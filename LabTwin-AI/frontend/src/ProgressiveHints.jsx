@@ -1,6 +1,13 @@
 import { useState } from "react";
 import axios from "axios";
 
+
+
+const API_BASE = (
+  import.meta.env.VITE_API_URL ||
+  "http://127.0.0.1:8000/api"
+).replace(/\/$/, "");
+
 const API = "http://127.0.0.1:8000/api";
 
 function ProgressiveHints({
