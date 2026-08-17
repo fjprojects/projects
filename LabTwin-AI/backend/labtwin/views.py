@@ -4182,7 +4182,7 @@ Return ONLY valid JSON:
         # weakness such as overflow, initialization, etc.
         # ----------------------------------------------------
 
-        if misconception:
+        if misconception and not passed_code:
 
             viva_question = (
                 "In "
@@ -4306,6 +4306,12 @@ def evaluate_code(request):
                 hint_level
             )
         )
+
+        # LABTWIN_PASSED_CODE_EVALUATION_NORMALIZATION
+        # A correct first attempt has no diagnosed coding mistake.
+        # The viva must evaluate the requested concept only.
+        if initial_score >= 100:
+            misconception = ""
 
         verification = bool(
             data.get(

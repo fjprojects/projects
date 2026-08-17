@@ -973,7 +973,7 @@ function App() {
                 question.topic,
 
               misconception:
-                "No coding error. Verify conceptual understanding of this exact topic.",
+                "",
 
               passed_code:
                 true
@@ -1096,8 +1096,12 @@ function App() {
                 .concept_key,
 
             misconception:
-              analysis.diagnosis
-                .misconception || "",
+              analysis?.test_score === 100
+                ? ""
+                : (
+                    analysis?.diagnosis
+                      ?.misconception || ""
+                  ),
 
             code:
               correctedCode,
@@ -1138,16 +1142,28 @@ function App() {
             response.data.evaluation.score,
 
           misconception:
-            analysis.diagnosis
-              .misconception || "",
+            analysis?.test_score === 100
+              ? ""
+              : (
+                  analysis?.diagnosis
+                    ?.misconception || ""
+                ),
 
           topicRelated:
-            analysis.diagnosis
-              .topic_related || false,
+            analysis?.test_score === 100
+              ? false
+              : (
+                  analysis?.diagnosis
+                    ?.topic_related || false
+                ),
 
           topicMisconception:
-            analysis.diagnosis
-              .topic_misconception || "",
+            analysis?.test_score === 100
+              ? ""
+              : (
+                  analysis?.diagnosis
+                    ?.topic_misconception || ""
+                ),
 
           status:
             response.data.evaluation.status,
@@ -1171,6 +1187,46 @@ function App() {
         );
 
 
+      const finalStatus =
+        topicProgress?.status ??
+        response.data.evaluation.status;
+
+      const finalMastery =
+        topicProgress?.mastery_score ??
+        response.data.topic_evidence_score;
+
+      const verificationPassed =
+        topicProgress?.verification_passed ??
+        response.data.verification_passed ??
+        (
+          question?.is_verification === true &&
+          Number(response.data.retest_score ?? 0) >= 80 &&
+          Number(response.data.evaluation?.score ?? 0) >= 75 &&
+          Number(hintLevel ?? 0) <= 1
+        );
+
+      const finalTopicProgress =
+        topicProgress
+          ? {
+              ...topicProgress,
+              verification_passed:
+                Boolean(verificationPassed),
+              verification_required:
+                finalStatus !== "Mastered"
+            }
+          : {
+              topic:
+                question?.topic || "General",
+              mastery_score:
+                Number(finalMastery ?? 0),
+              status:
+                finalStatus,
+              verification_passed:
+                Boolean(verificationPassed),
+              verification_required:
+                finalStatus !== "Mastered"
+            };
+
       setEvaluation({
 
         ...response.data,
@@ -1180,18 +1236,22 @@ function App() {
           response.data.lab_readiness,
 
         topic_mastery:
-          topicProgress?.mastery_score ??
-          response.data.topic_evidence_score,
+          finalMastery,
+
+        verification_passed:
+          Boolean(verificationPassed),
+
+        verification_required:
+          finalStatus !== "Mastered",
 
         topic_progress:
-          topicProgress || null,
+          finalTopicProgress,
 
         evaluation: {
           ...response.data.evaluation,
 
           status:
-            topicProgress?.status ??
-            response.data.evaluation.status
+            finalStatus
         }
 
       });
