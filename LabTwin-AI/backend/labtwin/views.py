@@ -3737,6 +3737,79 @@ Return ONLY JSON:
         ):
             topic_related = True
 
+        # LABTWIN_POINTER_ARITHMETIC_EVIDENCE_FINAL
+        # ==================================================
+        # POINTER ARITHMETIC TOPIC EVIDENCE
+        #
+        # Example:
+        #   wrong:  a + n - 2
+        #   right:  a + n - 1
+        #
+        # This is algorithm_logic AND topic-related because
+        # the incorrect pointer offset is the reason the
+        # algorithm accesses the wrong array position.
+        # ==================================================
+
+        if (
+            topic_name == "pointer arithmetic"
+            and
+            category in {
+                "algorithm_logic",
+                "topic_concept",
+                "runtime_memory",
+            }
+            and
+            any(
+                signal in diagnosis_text
+                for signal in (
+                    "right pointer",
+                    "left pointer",
+                    "pointer initialization",
+                    "pointer position",
+                    "pointer starts",
+                    "pointer start",
+                    "pointer offset",
+                    "second-to-last",
+                    "second to last",
+                    "last element",
+                    "first element",
+                    "a + n - 2",
+                    "a+n-2",
+                    "n - 2",
+                    "n-2",
+                    "a + n - 1",
+                    "a+n-1",
+                    "n - 1",
+                    "n-1",
+                    "pointer increment",
+                    "pointer decrement",
+                    "increment the pointer",
+                    "decrement the pointer",
+                )
+            )
+        ):
+            topic_related = True
+
+            if not str(
+                diagnosis.get(
+                    "topic_misconception",
+                    ""
+                )
+                or ""
+            ).strip():
+
+                diagnosis[
+                    "topic_misconception"
+                ] = str(
+                    diagnosis.get(
+                        "misconception",
+                        ""
+                    )
+                    or
+                    "Incorrect pointer arithmetic or pointer offset."
+                ).strip()
+
+
         diagnosis[
             "topic_related"
         ] = topic_related
