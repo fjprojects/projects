@@ -3516,6 +3516,183 @@ Return ONLY JSON:
         ):
             topic_related = True
 
+        # LABTWIN_TOPIC_RELATION_RECONCILIATION_V2
+        # ==================================================
+        # ERROR TYPE != TOPIC RELATION
+        #
+        # algorithm_logic can still be evidence about the
+        # selected syllabus topic.
+        #
+        # Examples:
+        # Arrays + wrong traversal index -> related
+        # Pointer Arithmetic + wrong pointer increment -> related
+        # Pointer-to-Pointer + unrelated loop typo -> unrelated
+        # ==================================================
+
+        topic_name = " ".join(
+            str(
+                question.get(
+                    "topic",
+                    ""
+                )
+                or ""
+            )
+            .strip()
+            .lower()
+            .replace("-", " ")
+            .split()
+        )
+
+        diagnosis_text = " ".join([
+            str(
+                diagnosis.get(
+                    "misconception",
+                    ""
+                )
+                or ""
+            ),
+            str(
+                diagnosis.get(
+                    "explanation",
+                    ""
+                )
+                or ""
+            ),
+            str(
+                diagnosis.get(
+                    "hint",
+                    ""
+                )
+                or ""
+            ),
+        ]).lower()
+
+
+        topic_signal_map = {
+
+            "arrays": (
+                "array index",
+                "array indices",
+                "array element",
+                "first element",
+                "last element",
+                "index 0",
+                "index 1",
+                "n - 1",
+                "n-1",
+                "n - 2",
+                "n-2",
+                "array traversal",
+                "reverse loop",
+            ),
+
+            "pointers": (
+                "dereference",
+                "dereferencing",
+                "address operator",
+                "pointer variable",
+                "pointer value",
+                "address of",
+            ),
+
+            "pointer arithmetic": (
+                "pointer arithmetic",
+                "pointer increment",
+                "pointer decrement",
+                "pointer offset",
+                "increment the pointer",
+                "decrement the pointer",
+            ),
+
+            "passing pointers to functions": (
+                "pointer parameter",
+                "pointer argument",
+                "pass the address",
+                "passing pointer",
+                "passing the pointer",
+            ),
+
+            "accessing array elements using pointers": (
+                "array element",
+                "pointer traversal",
+                "dereference",
+                "pointer access",
+            ),
+
+            "processing strings using pointers": (
+                "string pointer",
+                "character pointer",
+                "char pointer",
+                "string traversal",
+                "null terminator",
+            ),
+
+            "pointer to pointer": (
+                "pointer to pointer",
+                "double pointer",
+                "dereference twice",
+                "**",
+            ),
+
+            "array of pointers": (
+                "array of pointers",
+                "pointer array",
+                "array containing pointers",
+            ),
+
+            "pointer to function": (
+                "function pointer",
+                "pointer to function",
+                "assign the function",
+            ),
+
+            "function pointers": (
+                "function pointer",
+                "pointer to function",
+                "assign the function",
+            ),
+
+            "pointer to structure": (
+                "structure pointer",
+                "pointer to structure",
+                "->",
+                "arrow operator",
+            ),
+
+            "dynamic memory allocation": (
+                "malloc",
+                "calloc",
+                "realloc",
+                "free",
+                "allocated memory",
+                "dynamic memory",
+            ),
+        }
+
+
+        signals = topic_signal_map.get(
+            topic_name,
+            ()
+        )
+
+        if (
+            category
+            in {
+                "algorithm_logic",
+                "topic_concept",
+                "runtime_memory",
+            }
+            and
+            signals
+            and
+            any(
+                signal in diagnosis_text
+                for signal in signals
+            )
+        ):
+            topic_related = True
+
+
         diagnosis[
             "topic_related"
         ] = topic_related

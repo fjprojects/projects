@@ -1124,7 +1124,7 @@ def build_local_fallback_question(
     }
 
 
-def generate_adaptive_question(
+def _generate_adaptive_question_unchecked(
     topics,
     history,
     language,
@@ -1862,6 +1862,1087 @@ def _sanitize_state_for_current_syllabus(
 
 
     return state
+
+
+
+
+# LABTWIN_SEMANTIC_TOPIC_RECONCILIATION_V1
+# ============================================================
+# EXACT SYLLABUS TOPIC SEMANTIC RECONCILIATION
+# ============================================================
+
+def _normalize_topic_name(value):
+
+    return " ".join(
+        str(value or "")
+        .strip()
+        .lower()
+        .replace("-", " ")
+        .split()
+    )
+
+
+def _find_exact_syllabus_topic(
+    syllabus_topics,
+    *candidate_names
+):
+
+    wanted = {
+        _normalize_topic_name(name)
+        for name in candidate_names
+    }
+
+    for topic in syllabus_topics:
+
+        if (
+            _normalize_topic_name(topic)
+            in wanted
+        ):
+            return topic
+
+    return None
+
+
+def _find_topic_containing(
+    syllabus_topics,
+    *parts
+):
+
+    required = [
+        _normalize_topic_name(part)
+        for part in parts
+    ]
+
+    for topic in syllabus_topics:
+
+        normalized = (
+            _normalize_topic_name(topic)
+        )
+
+        if all(
+            part in normalized
+            for part in required
+        ):
+            return topic
+
+    return None
+
+
+def _infer_semantic_topic(
+    problem,
+    syllabus_topics,
+    selected_topic,
+    language
+):
+
+    if str(language).strip().lower() != "c":
+        return None
+
+    text = str(
+        problem or ""
+    ).lower()
+
+    topics = list(
+        syllabus_topics or []
+    )
+
+    # --------------------------------------------------------
+    # MOST SPECIFIC POINTER TOPICS FIRST
+    # --------------------------------------------------------
+
+    if (
+        "function pointer" in text
+        or "pointer to function" in text
+    ):
+
+        match = (
+            _find_exact_syllabus_topic(
+                topics,
+                "Pointer to Function",
+                "Function Pointers",
+                "Function Pointer"
+            )
+            or
+            _find_topic_containing(
+                topics,
+                "function",
+                "pointer"
+            )
+        )
+
+        if match:
+            return match
+
+
+    if (
+        "pointer to pointer" in text
+        or "double pointer" in text
+        or "**" in text
+    ):
+
+        match = (
+            _find_exact_syllabus_topic(
+                topics,
+                "Pointer to Pointer"
+            )
+            or
+            _find_topic_containing(
+                topics,
+                "pointer to pointer"
+            )
+        )
+
+        if match:
+            return match
+
+
+    if "array of pointers" in text:
+
+        match = (
+            _find_exact_syllabus_topic(
+                topics,
+                "Array of Pointers"
+            )
+            or
+            _find_topic_containing(
+                topics,
+                "array",
+                "pointers"
+            )
+        )
+
+        if match:
+            return match
+
+
+    if (
+        "pointer to structure" in text
+        or "structure pointer" in text
+        or "->" in text
+    ):
+
+        match = (
+            _find_exact_syllabus_topic(
+                topics,
+                "Pointer to Structure"
+            )
+            or
+            _find_topic_containing(
+                topics,
+                "pointer",
+                "structure"
+            )
+        )
+
+        if match:
+            return match
+
+
+    # --------------------------------------------------------
+    # DYNAMIC MEMORY
+    # --------------------------------------------------------
+
+    if any(
+        token in text
+        for token in (
+            "malloc",
+            "calloc",
+            "realloc",
+            "free("
+        )
+    ):
+
+        match = (
+            _find_exact_syllabus_topic(
+                topics,
+                "Dynamic Memory Allocation",
+                "Memory Management (malloc, free)",
+                "Memory Management"
+            )
+            or
+            _find_topic_containing(
+                topics,
+                "memory"
+            )
+        )
+
+        if match:
+            return match
+
+
+    # --------------------------------------------------------
+    # FILE SUBTOPICS
+    # --------------------------------------------------------
+
+    if any(
+        token in text
+        for token in (
+            "fseek",
+            "ftell",
+            "fread",
+            "fwrite"
+        )
+    ):
+
+        match = _find_topic_containing(
+            topics,
+            "library functions"
+        )
+
+        if match:
+            return match
+
+
+    if (
+        ("fopen" in text or "open a file" in text)
+        and
+        ("fclose" in text or "close the file" in text)
+        and
+        not any(
+            token in text
+            for token in (
+                "fprintf",
+                "fscanf",
+                "fgets",
+                "fputs",
+                "fread",
+                "fwrite"
+            )
+        )
+    ):
+
+        match = (
+            _find_topic_containing(
+                topics,
+                "opening",
+                "closing"
+            )
+        )
+
+        if match:
+            return match
+
+
+    if any(
+        token in text
+        for token in (
+            "fprintf",
+            "fscanf",
+            "fgets",
+            "fputs"
+        )
+    ):
+
+        match = (
+            _find_topic_containing(
+                topics,
+                "writing",
+                "reading"
+            )
+        )
+
+        if match:
+            return match
+
+
+    # --------------------------------------------------------
+    # POINTER + STRING
+    # --------------------------------------------------------
+
+    if (
+        "pointer" in text
+        and
+        (
+            "string" in text
+            or "character array" in text
+        )
+    ):
+
+        match = (
+            _find_exact_syllabus_topic(
+                topics,
+                "Processing Strings Using Pointers"
+            )
+            or
+            _find_topic_containing(
+                topics,
+                "strings",
+                "pointers"
+            )
+        )
+
+        if match:
+            return match
+
+
+    # --------------------------------------------------------
+    # PASSING POINTERS TO FUNCTIONS
+    # --------------------------------------------------------
+
+    if (
+        "pointer" in text
+        and
+        "function" in text
+        and
+        any(
+            phrase in text
+            for phrase in (
+                "pass",
+                "parameter",
+                "argument",
+                "swap"
+            )
+        )
+    ):
+
+        match = (
+            _find_exact_syllabus_topic(
+                topics,
+                "Passing Pointers to Functions"
+            )
+            or
+            _find_topic_containing(
+                topics,
+                "passing",
+                "pointers",
+                "functions"
+            )
+        )
+
+        if match:
+            return match
+
+
+    # --------------------------------------------------------
+    # POINTER ARITHMETIC
+    #
+    # This catches the exact bug:
+    #
+    # label = Pointers
+    # problem = "use only pointer arithmetic"
+    # --------------------------------------------------------
+
+    if any(
+        phrase in text
+        for phrase in (
+            "pointer arithmetic",
+            "array indexing is not allowed",
+            "array indexing is disallowed",
+            "without array indexing",
+            "increment the pointer",
+            "decrement the pointer",
+            "pointer increment",
+            "pointer decrement"
+        )
+    ):
+
+        match = (
+            _find_exact_syllabus_topic(
+                topics,
+                "Pointer Arithmetic"
+            )
+            or
+            _find_topic_containing(
+                topics,
+                "pointer arithmetic"
+            )
+        )
+
+        if match:
+            return match
+
+
+    # --------------------------------------------------------
+    # ACCESSING ARRAY ELEMENTS USING POINTERS
+    # --------------------------------------------------------
+
+    if (
+        "array" in text
+        and
+        "pointer" in text
+        and
+        any(
+            word in text
+            for word in (
+                "access",
+                "traverse",
+                "iterate",
+                "element"
+            )
+        )
+    ):
+
+        match = (
+            _find_exact_syllabus_topic(
+                topics,
+                "Accessing Array Elements Using Pointers"
+            )
+            or
+            _find_topic_containing(
+                topics,
+                "array",
+                "pointers"
+            )
+        )
+
+        if match:
+            return match
+
+
+    return None
+
+
+def _concept_key_for_topic(
+    topic
+):
+
+    normalized = _normalize_topic_name(
+        topic
+    )
+
+    if "dynamic memory" in normalized:
+        return "DYNAMIC_MEMORY"
+
+    if "memory management" in normalized:
+        return "DYNAMIC_MEMORY"
+
+    if "pointer" in normalized:
+        return "POINTERS"
+
+    if "array" == normalized:
+        return "ARRAYS"
+
+    if "string" in normalized:
+        return "STRINGS"
+
+    if "function" in normalized:
+        return "FUNCTIONS"
+
+    if "structure" in normalized:
+        return "STRUCTURES"
+
+    if "file" in normalized:
+        return "FILES"
+
+    return "OTHER"
+
+
+def _build_exact_topic_fallback(
+    selected_topic,
+    language
+):
+
+    if str(language).strip().lower() != "c":
+        return None
+
+    topic = _normalize_topic_name(
+        selected_topic
+    )
+
+
+    if topic == "arrays":
+
+        return {
+            "topic": selected_topic,
+            "concept_key": "ARRAYS",
+            "adaptation_reason":
+                "Deterministic exact-topic fallback.",
+            "problem":
+                (
+                    "Write a C program that reads N followed by "
+                    "N integers, stores them in an array, and "
+                    "prints the array in reverse order. You must "
+                    "use array indexing to access the stored "
+                    "elements."
+                ),
+            "tests": [
+                {
+                    "input":
+                        "5\n1 2 3 4 5\n",
+                    "expected":
+                        "5 4 3 2 1"
+                },
+                {
+                    "input":
+                        "1\n7\n",
+                    "expected":
+                        "7"
+                },
+                {
+                    "input":
+                        "4\n-1 0 7 2\n",
+                    "expected":
+                        "2 7 0 -1"
+                }
+            ]
+        }
+
+
+    if topic == "pointers":
+
+        return {
+            "topic": selected_topic,
+            "concept_key": "POINTERS",
+            "adaptation_reason":
+                "Deterministic exact-topic fallback.",
+            "problem":
+                (
+                    "Write a C program that reads one integer. "
+                    "Store it in an int variable, create an int "
+                    "pointer containing that variable's address, "
+                    "increase the value by 1 using dereferencing "
+                    "through the pointer, and print the updated "
+                    "value. Do not use pointer arithmetic."
+                ),
+            "tests": [
+                {
+                    "input": "5\n",
+                    "expected": "6"
+                },
+                {
+                    "input": "-2\n",
+                    "expected": "-1"
+                },
+                {
+                    "input": "0\n",
+                    "expected": "1"
+                }
+            ]
+        }
+
+
+    if topic == "pointer arithmetic":
+
+        return {
+            "topic": selected_topic,
+            "concept_key": "POINTERS",
+            "adaptation_reason":
+                "Deterministic exact-topic fallback.",
+            "problem":
+                (
+                    "Write a C program that reads N followed by "
+                    "N integers and stores them in an array. "
+                    "Using a pointer and pointer arithmetic only, "
+                    "visit every array element and print their "
+                    "sum. Do not use arr[i] while computing the "
+                    "sum."
+                ),
+            "tests": [
+                {
+                    "input":
+                        "5\n1 2 3 4 5\n",
+                    "expected":
+                        "15"
+                },
+                {
+                    "input":
+                        "3\n-1 -2 -3\n",
+                    "expected":
+                        "-6"
+                },
+                {
+                    "input":
+                        "1\n10\n",
+                    "expected":
+                        "10"
+                }
+            ]
+        }
+
+
+    if "passing pointers to functions" in topic:
+
+        return {
+            "topic": selected_topic,
+            "concept_key": "POINTERS",
+            "adaptation_reason":
+                "Deterministic exact-topic fallback.",
+            "problem":
+                (
+                    "Write a C program that reads two integers. "
+                    "Create a function swap(int *a, int *b) and "
+                    "pass the addresses of the two integers to "
+                    "that function. Print the values after "
+                    "swapping."
+                ),
+            "tests": [
+                {
+                    "input": "2 5\n",
+                    "expected": "5 2"
+                },
+                {
+                    "input": "-1 7\n",
+                    "expected": "7 -1"
+                },
+                {
+                    "input": "0 0\n",
+                    "expected": "0 0"
+                }
+            ]
+        }
+
+
+    if "accessing array elements using pointers" in topic:
+
+        return {
+            "topic": selected_topic,
+            "concept_key": "POINTERS",
+            "adaptation_reason":
+                "Deterministic exact-topic fallback.",
+            "problem":
+                (
+                    "Write a C program that reads N followed by "
+                    "N integers into an array. Create a pointer "
+                    "to the first element and access the stored "
+                    "elements through that pointer to find and "
+                    "print the maximum value."
+                ),
+            "tests": [
+                {
+                    "input":
+                        "5\n1 8 3 2 5\n",
+                    "expected":
+                        "8"
+                },
+                {
+                    "input":
+                        "3\n-5 -2 -9\n",
+                    "expected":
+                        "-2"
+                },
+                {
+                    "input":
+                        "1\n4\n",
+                    "expected":
+                        "4"
+                }
+            ]
+        }
+
+
+    if "processing strings using pointers" in topic:
+
+        return {
+            "topic": selected_topic,
+            "concept_key": "POINTERS",
+            "adaptation_reason":
+                "Deterministic exact-topic fallback.",
+            "problem":
+                (
+                    "Write a C program that reads one word into "
+                    "a character array. Use a char pointer to "
+                    "traverse the string and print its length. "
+                    "Do not use strlen."
+                ),
+            "tests": [
+                {
+                    "input": "hello\n",
+                    "expected": "5"
+                },
+                {
+                    "input": "C\n",
+                    "expected": "1"
+                },
+                {
+                    "input": "pointer\n",
+                    "expected": "7"
+                }
+            ]
+        }
+
+
+    if "pointer to pointer" in topic:
+
+        return {
+            "topic": selected_topic,
+            "concept_key": "POINTERS",
+            "adaptation_reason":
+                "Deterministic exact-topic fallback.",
+            "problem":
+                (
+                    "Write a C program that reads an integer x. "
+                    "Create an int pointer p to x and an int "
+                    "double-pointer pp to p. Add 5 to x using "
+                    "**pp and print the updated value."
+                ),
+            "tests": [
+                {
+                    "input": "5\n",
+                    "expected": "10"
+                },
+                {
+                    "input": "-5\n",
+                    "expected": "0"
+                },
+                {
+                    "input": "0\n",
+                    "expected": "5"
+                }
+            ]
+        }
+
+
+    if "array of pointers" in topic:
+
+        return {
+            "topic": selected_topic,
+            "concept_key": "POINTERS",
+            "adaptation_reason":
+                "Deterministic exact-topic fallback.",
+            "problem":
+                (
+                    "Write a C program that reads three integers "
+                    "a, b and c. Create an array containing "
+                    "pointers to these three variables. "
+                    "Dereference the pointers in the array and "
+                    "print the sum of the three values."
+                ),
+            "tests": [
+                {
+                    "input": "1 2 3\n",
+                    "expected": "6"
+                },
+                {
+                    "input": "-1 4 2\n",
+                    "expected": "5"
+                },
+                {
+                    "input": "0 0 0\n",
+                    "expected": "0"
+                }
+            ]
+        }
+
+
+    if (
+        "pointer to function" in topic
+        or
+        "function pointers" in topic
+        or
+        "function pointer" == topic
+    ):
+
+        return {
+            "topic": selected_topic,
+            "concept_key": "POINTERS",
+            "adaptation_reason":
+                "Deterministic exact-topic fallback.",
+            "problem":
+                (
+                    "Write a C program with add and multiply "
+                    "functions. Read integers a, b and op. "
+                    "Create a function pointer of type "
+                    "int (*fp)(int, int). If op is 1 assign add "
+                    "to fp; otherwise assign multiply. Call the "
+                    "selected function only through fp and print "
+                    "the result."
+                ),
+            "tests": [
+                {
+                    "input": "2 3 1\n",
+                    "expected": "5"
+                },
+                {
+                    "input": "4 5 2\n",
+                    "expected": "20"
+                },
+                {
+                    "input": "-2 7 1\n",
+                    "expected": "5"
+                }
+            ]
+        }
+
+
+    if "pointer to structure" in topic:
+
+        return {
+            "topic": selected_topic,
+            "concept_key": "STRUCTURES",
+            "adaptation_reason":
+                "Deterministic exact-topic fallback.",
+            "problem":
+                (
+                    "Define a C structure Pair containing two "
+                    "integers a and b. Read both values, create "
+                    "a pointer to the structure, access both "
+                    "members using the -> operator, and print "
+                    "their sum."
+                ),
+            "tests": [
+                {
+                    "input": "2 3\n",
+                    "expected": "5"
+                },
+                {
+                    "input": "-5 2\n",
+                    "expected": "-3"
+                },
+                {
+                    "input": "0 0\n",
+                    "expected": "0"
+                }
+            ]
+        }
+
+
+    if (
+        "dynamic memory allocation" in topic
+        or
+        "memory management" in topic
+    ):
+
+        return {
+            "topic": selected_topic,
+            "concept_key": "DYNAMIC_MEMORY",
+            "adaptation_reason":
+                "Deterministic exact-topic fallback.",
+            "problem":
+                (
+                    "Write a C program that reads N followed by "
+                    "N integers. Allocate memory dynamically for "
+                    "the N integers using malloc or calloc, "
+                    "store the values, print their sum, and free "
+                    "the allocated memory before the program "
+                    "ends."
+                ),
+            "tests": [
+                {
+                    "input":
+                        "4\n1 2 3 4\n",
+                    "expected":
+                        "10"
+                },
+                {
+                    "input":
+                        "3\n-1 -2 5\n",
+                    "expected":
+                        "2"
+                },
+                {
+                    "input":
+                        "1\n9\n",
+                    "expected":
+                        "9"
+                }
+            ]
+        }
+
+
+    return None
+
+
+def generate_adaptive_question(
+    topics,
+    history,
+    language,
+    weak_concept=None
+):
+
+    selected_topic = str(
+        topics[0]
+        if topics
+        else ""
+    ).strip()
+
+    state = load_state()
+
+    all_syllabus_topics = (
+        state.get(
+            "topics",
+            []
+        )
+        or
+        topics
+        or
+        []
+    )
+
+    # If we are asking the same topic again because of
+    # weakness/verification, DO NOT allow semantic relabelling
+    # to a sibling topic.
+    strict_target = bool(
+        weak_concept
+    )
+
+    if history and selected_topic:
+
+        previous_topic = str(
+            history[-1].get(
+                "topic",
+                ""
+            )
+            or ""
+        ).strip()
+
+        if (
+            _normalize_topic_name(
+                previous_topic
+            )
+            ==
+            _normalize_topic_name(
+                selected_topic
+            )
+        ):
+            strict_target = True
+
+
+    last_error = None
+
+    for attempt in range(2):
+
+        try:
+
+            generated = (
+                _generate_adaptive_question_unchecked(
+                    topics,
+                    history,
+                    language,
+                    weak_concept
+                )
+            )
+
+            if not isinstance(
+                generated,
+                dict
+            ):
+                raise ValueError(
+                    "Question generator did not return JSON."
+                )
+
+            problem = str(
+                generated.get(
+                    "problem",
+                    ""
+                )
+                or ""
+            ).strip()
+
+            if not problem:
+                raise ValueError(
+                    "Generated programming problem is empty."
+                )
+
+
+            semantic_topic = (
+                _infer_semantic_topic(
+                    problem,
+                    all_syllabus_topics,
+                    selected_topic,
+                    language
+                )
+            )
+
+
+            # =================================================
+            # SEMANTIC SIBLING DETECTED
+            # =================================================
+
+            if (
+                semantic_topic
+                and
+                selected_topic
+                and
+                _normalize_topic_name(
+                    semantic_topic
+                )
+                !=
+                _normalize_topic_name(
+                    selected_topic
+                )
+            ):
+
+                if strict_target:
+
+                    last_error = ValueError(
+                        "Generated problem drifted from exact "
+                        f'topic "{selected_topic}" to sibling '
+                        f'topic "{semantic_topic}".'
+                    )
+
+                    continue
+
+
+                # Normal first-time question:
+                # If the AI actually produced a more specific
+                # exact syllabus topic, correct the label to
+                # match the semantics.
+                generated[
+                    "topic"
+                ] = semantic_topic
+
+                generated[
+                    "concept_key"
+                ] = _concept_key_for_topic(
+                    semantic_topic
+                )
+
+                generated[
+                    "adaptation_reason"
+                ] = (
+                    "Question semantics matched the more "
+                    "specific uploaded syllabus topic: "
+                    + semantic_topic
+                    + "."
+                )
+
+                return generated
+
+
+            # No sibling conflict.
+            # Keep the exact selected syllabus topic.
+            if selected_topic:
+
+                generated[
+                    "topic"
+                ] = selected_topic
+
+                generated[
+                    "concept_key"
+                ] = _concept_key_for_topic(
+                    selected_topic
+                )
+
+
+            return generated
+
+
+        except Exception as error:
+
+            last_error = error
+
+            print(
+                "SEMANTIC QUESTION ATTEMPT",
+                attempt + 1,
+                "FAILED:",
+                error
+            )
+
+
+    # =========================================================
+    # RELIABLE EXACT-TOPIC FALLBACK
+    # =========================================================
+
+    fallback = _build_exact_topic_fallback(
+        selected_topic,
+        language
+    )
+
+    if fallback:
+
+        print(
+            "USING EXACT-TOPIC FALLBACK:",
+            selected_topic
+        )
+
+        return fallback
+
+
+    raise ValueError(
+        "Could not generate a semantically aligned question "
+        f'for exact syllabus topic "{selected_topic}". '
+        f"Last error: {last_error}"
+    )
 
 
 
