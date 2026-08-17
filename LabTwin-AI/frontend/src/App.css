@@ -3606,3 +3606,75 @@ topics paragraph
 
 /* SAFE SYLLABUS GRID END */
 
+
+/* FINAL QUESTION CARD POLISH */
+
+/* C question info box */
+.cLanguageNotice,
+.c-question-notice,
+.cQuestionNotice {
+  padding: 14px 18px !important;
+  margin: 10px 0 14px !important;
+  min-height: 0 !important;
+}
+
+/* Heading inside info box */
+.cLanguageNotice h3,
+.c-question-notice h3,
+.cQuestionNotice h3 {
+  margin: 0 0 5px !important;
+}
+
+/* Paragraph inside info box */
+.cLanguageNotice p,
+.c-question-notice p,
+.cQuestionNotice p {
+  margin: 0 !important;
+  line-height: 1.4 !important;
+}
+
+/* Programming Problem spacing */
+.studentWorkspace .mainRail h3 {
+  margin-top: 12px !important;
+  margin-bottom: 6px !important;
+}
+
+/* Code editor */
+.studentWorkspace textarea {
+  min-height: 210px !important;
+  height: 210px !important;
+}
+
+/* Question card internal spacing */
+.studentWorkspace .mainRail > .card:nth-of-type(2) {
+  padding-top: 22px !important;
+  padding-bottom: 22px !important;
+}
+
+
+/* FIX BLACK PAGE BACKGROUND */
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  background: #f4f7fb !important;
+}
+
+body {
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app,
+.App,
+.studentWorkspace,
+.pageContainer {
+  min-height: 100vh;
+  background: #f4f7fb !important;
+}
+
