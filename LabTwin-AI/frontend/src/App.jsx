@@ -1420,7 +1420,7 @@ function App() {
         <div className="card">
 
           <h2>
-            Start Learning Session
+            Start
           </h2>
 
           <p>
@@ -3726,6 +3726,7 @@ function App() {
 
 
 export default App;
+
 
 
 
