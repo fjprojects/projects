@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import "./App.css";
@@ -1467,7 +1467,7 @@ function App() {
                 startStudent("new")
               }
             >
-              Start New Session
+              Start
             </button>
 
 
@@ -2882,7 +2882,7 @@ function App() {
                         .mastery_score
                     }%
 
-                    {" — "}
+                    {" â€” "}
 
                     {
                       Number(
@@ -2966,7 +2966,7 @@ function App() {
                         .weakest_topic
                         .status === "Mastered"
 
-                        ? "Nothing — Mastery Confirmed"
+                        ? "Nothing â€” Mastery Confirmed"
 
                         : progress
                             .weakest_topic
@@ -3726,6 +3726,7 @@ function App() {
 
 
 export default App;
+
 
 
 
