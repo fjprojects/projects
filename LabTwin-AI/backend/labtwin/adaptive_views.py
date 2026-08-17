@@ -1312,6 +1312,22 @@ THIS IS THE ONLY ALLOWED TOPIC FOR THIS QUESTION.
 The programming problem must primarily test this exact topic.
 Do not use another syllabus topic as the main skill.
 
+SELECTED-TOPIC NECESSITY RULE:
+The selected topic must be REQUIRED to solve the problem, not optional.
+
+For example:
+- Arrays: explicitly require the student to STORE values in an array
+  and process them using array indexing. Do not generate a problem
+  that can be solved simply by reading one value at a time.
+- Strings: explicitly require string/character-array processing.
+- Functions: explicitly require defining and calling a function.
+- Pointers: explicitly require pointer usage.
+- Bitwise Operators: explicitly require bitwise operators.
+
+For Arrays, prefer direct introductory lab operations such as:
+sum using stored array elements, maximum/minimum, reverse,
+search, counting, or indexed traversal.
+
 IMPORTANT SYLLABUS-SCOPE RULE:
 Do NOT introduce an algorithm, technique, data structure, or advanced concept
 that is not explicitly present in the uploaded syllabus.
