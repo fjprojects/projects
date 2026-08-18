@@ -1,4 +1,4 @@
-import React, {
+﻿import React, {
   useEffect,
   useState
 } from "react";
@@ -419,7 +419,7 @@ function AttemptCard({
 
             {
               finalScore == null
-                ? "—"
+                ? "â€”"
                 : `${finalScore.toFixed(0)}%`
             }
 
@@ -438,7 +438,7 @@ function AttemptCard({
 
             {
               viva == null
-                ? "—"
+                ? "â€”"
                 : `${viva.toFixed(0)}%`
             }
 
@@ -457,7 +457,7 @@ function AttemptCard({
 
             {
               mastery == null
-                ? "—"
+                ? "â€”"
                 : `${mastery.toFixed(1)}%`
             }
 
@@ -624,9 +624,7 @@ export default function LearningIntelligence({
             LEARNING DETAILS
           </span>
 
-          <h2>
-            Learning Insights
-          </h2>
+          <h2 style={{ color: "#0f172a" }}>Learning Insights</h2>
 
           <p>
 
@@ -743,7 +741,7 @@ export default function LearningIntelligence({
                       "Programming"
                     }
 
-                    {" • "}
+                    {" â€¢ "}
 
                     {
                       Array.isArray(
@@ -1066,7 +1064,7 @@ export default function LearningIntelligence({
                         <strong>
                           {
                             session?.language ||
-                            "—"
+                            "â€”"
                           }
                         </strong>
 
@@ -1410,3 +1408,4 @@ export default function LearningIntelligence({
 
   );
 }
+
